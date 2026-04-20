@@ -30,12 +30,12 @@ Alpha:   +50.1 pp    [BEAT ✓]
 
 All setups require a **green candle** AND **volume > 20-day volume MA** on the trigger bar. If volume is weak, skip and wait.
 
-| # | Setup | Key conditions | SL | TP |
-|---|---|---|---|---|
-| L1 | Ride Uptrend | SMA50 > SMA200, price ≥3/5d above BB mid, RSI > 50, recent pullback to SMA50 | **2× ATR** | **4× ATR** |
-| L2 | MACD Cross | MACD histogram just crossed zero up, RSI 50–70, price > SMA50 but not touching upper BB | **2.5× ATR** | **5× ATR** |
-| L3 | VWAP Support | SMA50 > SMA200, price 0–1.5% above VWAP (dipping toward it as support), RSI > 45 | **2× ATR** | **3× ATR** |
-| L4 | Pre-Golden Cross | SMA50 approaching SMA200 from below (<2% gap), price already > SMA200, RSI > 45, vol > 1.2× MA | **2× ATR** | **4× ATR** |
+| #   | Setup            | Key conditions                                                                                 | SL           | TP         |
+| --- | ---------------- | ---------------------------------------------------------------------------------------------- | ------------ | ---------- |
+| L1  | Ride Uptrend     | SMA50 > SMA200, price ≥3/5d above BB mid, RSI > 50, recent pullback to SMA50                   | **2× ATR**   | **4× ATR** |
+| L2  | MACD Cross       | MACD histogram just crossed zero up, RSI 50–70, price > SMA50 but not touching upper BB        | **2.5× ATR** | **5× ATR** |
+| L3  | VWAP Support     | SMA50 > SMA200, price 0–1.5% above VWAP (dipping toward it as support), RSI > 45               | **2× ATR**   | **3× ATR** |
+| L4  | Pre-Golden Cross | SMA50 approaching SMA200 from below (<2% gap), price already > SMA200, RSI > 45, vol > 1.2× MA | **2× ATR**   | **4× ATR** |
 
 ### 4. Volatility guardrail
 
@@ -45,14 +45,15 @@ All setups require a **green candle** AND **volume > 20-day volume MA** on the t
 
 1. **Initial stop** at the SL shown in the table (2× or 2.5× ATR below entry).
 2. **Trailing-to-breakeven**: once price travels **50% of the way from entry to TP**, raise SL to entry. One-way ratchet — SL only moves up, never down, and only once.
-   - Worked example: entry $130.52, TP $144.48. Midpoint = $137.50. When price tags $137.50, SL moves from $123.54 → $130.52. From then on, worst case is $0, best case is still +10.7%.
-   - This rule alone converts several would-be losers into $0 scratches (AVGO, NEE ×2 in the 2-year backtest).
+    - Worked example: entry $130.52, TP $144.48. Midpoint = $137.50. When price tags $137.50, SL moves from $123.54 → $130.52. From then on, worst case is $0, best case is still +10.7%.
+    - This rule alone converts several would-be losers into $0 scratches (AVGO, NEE ×2 in the 2-year backtest).
 3. **Time stop**: exit at the close after **40 trading days** if neither TP nor SL has been hit — free up capital for fresh setups.
 4. **One trade at a time.** Only scan for a new setup after the current trade exits. If the best setup on a given day scores below quality threshold (25), sit on hands.
 
 ### 6. Setup quality score (used by the backtest to pick the cleanest entry when multiple trigger)
 
 Up to 100 points:
+
 - Volume conviction: up to 35 pts (higher vol ratio = more pts)
 - RSI sweet spot: up to 30 pts (55–65 for longs = 30 pts, 50–70 = 15 pts)
 - ATR range: up to 20 pts (1.5–3.5% = 20 pts, 1–5% = 10 pts, else 0)
@@ -131,16 +132,17 @@ scripts/
 
 The first version of this strategy had **both long and short setups**, **1×/1.5× ATR stops**, and a **20-day time stop**. Over the 1-year window 2025-04-20 → 2026-04-20 it lost **-25.6% against SPY +39.8%** (alpha -65.4 pp). Four iterations fixed it:
 
-| Change | Rationale |
-|---|---|
-| Disable SHORT setups | Shorts kept getting clipped by the dominant bull tape before any move developed |
-| SL 2× ATR, TP 4× ATR (from 1× / 1.5×) | Tight stops get eaten by daily noise before the setup resolves |
-| Time stop 20 → 40 days | Winners like AVGO (+17.8% in 40 days) need room to run |
-| Trailing-to-breakeven at 50% of TP | Protects profits without capping upside — the single biggest alpha source |
+| Change                                | Rationale                                                                       |
+| ------------------------------------- | ------------------------------------------------------------------------------- |
+| Disable SHORT setups                  | Shorts kept getting clipped by the dominant bull tape before any move developed |
+| SL 2× ATR, TP 4× ATR (from 1× / 1.5×) | Tight stops get eaten by daily noise before the setup resolves                  |
+| Time stop 20 → 40 days                | Winners like AVGO (+17.8% in 40 days) need room to run                          |
+| Trailing-to-breakeven at 50% of TP    | Protects profits without capping upside — the single biggest alpha source       |
 
 Result: flipped from losing -65 pp to beating +50 pp over 2 years.
 
 Things that were tried and reverted (didn't help):
+
 - Earlier BE trigger (40% of TP): scratches too many trades before they reach target
 - Later BE trigger (60% of TP): more trades revert to full SL before lock
 - Stricter volume requirement (>1.3× MA): cuts winners faster than losers
@@ -187,3 +189,7 @@ claude mcp list
 ## Disclaimer
 
 This is backtested on historical data across a 2-year window. Past performance does not guarantee future results. The strategy was tuned against its own evaluation window, so the +50pp alpha number has some degree of in-sample fit — treat it as a reasoned starting point, not a promise.
+
+## Claude session
+
+claude --resume 42f69484-bc88-40bb-b701-fd0e2a251dd0 --dangerously-skip-permissions
