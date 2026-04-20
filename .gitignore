@@ -1,1 +1,4 @@
-data/\n.venv/
+data/
+.venv/
+__pycache__/
+*.pyc
