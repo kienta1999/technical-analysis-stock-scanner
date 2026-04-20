@@ -20,11 +20,12 @@ from universe import load_universe
 from indicators import compute
 from signals import score as score_setups
 
-START_DATE  = date(2025, 4, 20)
+START_DATE  = date(2024, 4, 20)
 END_DATE    = date(2026, 4, 20)
 CAPITAL_INIT = 10_000.0
 TIME_STOP_DAYS = 40          # max days to hold if TP/SL not hit
 MIN_QUALITY_SCORE = 25       # skip if best setup scores below this
+MAX_ATR_PCT = 4.0            # skip entries where ATR% > this (vol-cap)
 BENCHMARK   = "SPY"          # S&P 500 ETF for buy-and-hold comparison
 
 
@@ -174,7 +175,7 @@ def run():
     dl_tickers = tickers + [BENCHMARK]
 
     # Download enough history: SMA200 needs 200 trading days before start
-    fetch_start = date(2024, 7, 1)
+    fetch_start = date(2023, 7, 1)
     print(f"Downloading OHLCV from {fetch_start} to {END_DATE}...", flush=True)
     raw = yf.download(
         dl_tickers, start=fetch_start.isoformat(), end=END_DATE.isoformat(),
@@ -235,6 +236,8 @@ def run():
                 if not ind:
                     continue
 
+                if ind.get("atr_pct", 0) > MAX_ATR_PCT:
+                    continue
                 for s in score_setups(ind):
                     q = quality({**ind, **s})
                     candidates.append({
