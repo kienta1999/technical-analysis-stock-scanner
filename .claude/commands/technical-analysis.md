@@ -8,7 +8,7 @@ Run the long-only technical analysis scanner across the top 100 S&P 500 stocks b
 cd /home/talekien1710/personal_project/ai-stock-investment && .venv/bin/python3 scripts/sma200_filter.py
 ```
 
-Force-refresh universe (if it's been >30 days or you want latest market cap ranking):
+Force-refresh universe (if it's been >7 days or you want latest market cap ranking):
 
 ```bash
 cd /home/talekien1710/personal_project/ai-stock-investment && .venv/bin/python3 scripts/sma200_filter.py --refresh

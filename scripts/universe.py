@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Fetch and cache the top 100 stocks by market cap from the S&P 500 universe.
 
-Cache lives at data/universe_top100.csv and is refreshed every 30 days.
+Cache lives at data/universe_top100.csv and is refreshed every 7 days.
+Only the ticker list is cached; OHLCV price data is re-downloaded fresh every
+scanner/backtest run.
 """
 
 import os
@@ -18,7 +20,7 @@ import yfinance as yf
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE_FILE = os.path.join(_ROOT, "data", "universe_top100.csv")
-CACHE_MAX_AGE_DAYS = 30
+CACHE_MAX_AGE_DAYS = 7
 WORKERS = 20
 
 
