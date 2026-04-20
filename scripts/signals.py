@@ -19,9 +19,7 @@ def score(ind: dict) -> list[dict]:
 
     if above:
         setups += _long_setups(ind, p, atr)
-    else:
-        setups += _short_setups(ind, p, atr)
-
+    # Short side disabled — long-only strategy.
     return setups
 
 
@@ -43,9 +41,9 @@ def _long_setups(ind: dict, p: float, atr: float) -> list[dict]:
         and ind["vol_ratio"] > 1.0
     ):
         entry = p
-        sl = round(p - 1.0 * atr, 2)
-        tp = round(p + 1.5 * atr, 2)
-        setups.append(_setup("Ride Uptrend", "LONG", entry, sl, tp, "1:1.5",
+        sl = round(p - 2.0 * atr, 2)
+        tp = round(p + 4.0 * atr, 2)
+        setups.append(_setup("Ride Uptrend", "LONG", entry, sl, tp, "1:2",
                              "1D → 3-6 wk options",
                              f"RSI {ind['rsi']:.0f}, vol {ind['vol_ratio']:.1f}x MA"))
 
@@ -60,8 +58,8 @@ def _long_setups(ind: dict, p: float, atr: float) -> list[dict]:
         and ind["vol_ratio"] > 1.0
     ):
         entry = p
-        sl = round(p - 1.5 * atr, 2)
-        tp = round(p + 3.0 * atr, 2)
+        sl = round(p - 2.5 * atr, 2)
+        tp = round(p + 5.0 * atr, 2)
         setups.append(_setup("MACD Cross", "LONG", entry, sl, tp, "1:2",
                              "1D → 3-6 wk options",
                              f"MACD hist {ind['macd_hist']:+.3f}, RSI {ind['rsi']:.0f}"))
@@ -78,8 +76,8 @@ def _long_setups(ind: dict, p: float, atr: float) -> list[dict]:
         and ind["vol_ratio"] > 1.0
     ):
         entry = p
-        sl = round(p - 1.0 * atr, 2)
-        tp = round(p + 1.5 * atr, 2)
+        sl = round(p - 2.0 * atr, 2)
+        tp = round(p + 3.0 * atr, 2)
         setups.append(_setup("VWAP Support", "LONG", entry, sl, tp, "1:1.5",
                              "1H/4H → 2-3 wk options",
                              f"Price {vd:+.1f}% vs VWAP, RSI {ind['rsi']:.0f}"))
@@ -94,8 +92,8 @@ def _long_setups(ind: dict, p: float, atr: float) -> list[dict]:
         and ind["vol_ratio"] > 1.2
     ):
         entry = p
-        sl = round(p - 1.0 * atr, 2)
-        tp = round(min(p + 2.0 * atr, ind["sma50"]), 2)
+        sl = round(p - 2.0 * atr, 2)
+        tp = round(p + 4.0 * atr, 2)
         setups.append(_setup("Pre-Golden Cross", "LONG", entry, sl, tp, "1:2",
                              "1D → 3-6 wk options",
                              f"SMA50/200 gap <2%, vol {ind['vol_ratio']:.1f}x"))

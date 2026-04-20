@@ -20,11 +20,12 @@ from universe import load_universe
 from indicators import compute
 from signals import score as score_setups
 
-START_DATE  = date(2026, 3, 20)
+START_DATE  = date(2025, 4, 20)
 END_DATE    = date(2026, 4, 20)
 CAPITAL_INIT = 10_000.0
-TIME_STOP_DAYS = 20          # max days to hold if TP/SL not hit
-MIN_QUALITY_SCORE = 40       # skip if best setup scores below this
+TIME_STOP_DAYS = 40          # max days to hold if TP/SL not hit
+MIN_QUALITY_SCORE = 25       # skip if best setup scores below this
+BENCHMARK   = "SPY"          # S&P 500 ETF for buy-and-hold comparison
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -108,6 +109,10 @@ def simulate_trade(ticker: str, direction: str,
 
     hold_dates = [d for d in future_dates[1:] if ts(d) in ticker_high.index]
 
+    # Trailing-to-breakeven: once price moves halfway to TP, raise SL to entry.
+    be_trigger = actual_entry + (tp - actual_entry) * 0.5
+    moved_to_be = False
+
     for d in hold_dates:
         days_held += 1
         hi = float(ticker_high.loc[ts(d)])
@@ -115,11 +120,17 @@ def simulate_trade(ticker: str, direction: str,
         cl = float(ticker_close.loc[ts(d)])
 
         if direction == "LONG":
+            if not moved_to_be and hi >= be_trigger:
+                sl = max(sl, actual_entry)
+                moved_to_be = True
             if lo <= sl:            # SL hit
                 exit_price, outcome, exit_date = sl, "SL", d; break
             if hi >= tp:            # TP hit
                 exit_price, outcome, exit_date = tp, "TP", d; break
         else:  # SHORT
+            if not moved_to_be and lo <= be_trigger:
+                sl = min(sl, actual_entry)
+                moved_to_be = True
             if hi >= sl:            # SL hit
                 exit_price, outcome, exit_date = sl, "SL", d; break
             if lo <= tp:            # TP hit
@@ -160,12 +171,13 @@ def simulate_trade(ticker: str, direction: str,
 def run():
     universe = load_universe()
     tickers  = universe["Ticker"].tolist()
+    dl_tickers = tickers + [BENCHMARK]
 
-    # Download enough history: SMA200 needs 200 days before start
-    fetch_start = date(2025, 6, 1)
+    # Download enough history: SMA200 needs 200 trading days before start
+    fetch_start = date(2024, 7, 1)
     print(f"Downloading OHLCV from {fetch_start} to {END_DATE}...", flush=True)
     raw = yf.download(
-        tickers, start=fetch_start.isoformat(), end=END_DATE.isoformat(),
+        dl_tickers, start=fetch_start.isoformat(), end=END_DATE.isoformat(),
         interval="1d", auto_adjust=True, progress=False
     )
     if raw.empty:
@@ -300,11 +312,32 @@ def run():
     losses = len(df[df["pnl_pct"] <= 0])
     total  = len(df)
 
+    strat_ret_pct = (capital / CAPITAL_INIT - 1) * 100
+
+    # Benchmark: SPY buy-and-hold over backtest window
+    bench_ret_pct = None
+    bench_end_cap = None
+    try:
+        spy_close = raw["Close"][BENCHMARK].dropna()
+        spy_window = spy_close[(spy_close.index.date >= bt_dates[0]) &
+                               (spy_close.index.date <= bt_dates[-1])]
+        if len(spy_window) >= 2:
+            bench_ret_pct = (spy_window.iloc[-1] / spy_window.iloc[0] - 1) * 100
+            bench_end_cap = CAPITAL_INIT * (1 + bench_ret_pct / 100)
+    except Exception:
+        pass
+
     print(f"  Trades:      {total}  ({wins}W / {losses}L)")
     print(f"  Win rate:    {wins/total:.0%}")
     print(f"  Start:       ${CAPITAL_INIT:,.0f}")
     print(f"  End:         ${capital:,.0f}")
-    print(f"  Total P&L:   ${capital - CAPITAL_INIT:+,.0f}  ({(capital/CAPITAL_INIT - 1)*100:+.1f}%)")
+    print(f"  Total P&L:   ${capital - CAPITAL_INIT:+,.0f}  ({strat_ret_pct:+.1f}%)")
+    if bench_ret_pct is not None:
+        alpha = strat_ret_pct - bench_ret_pct
+        verdict = "BEAT ✓" if alpha > 0 else "LOST ✗"
+        print(f"\n  Benchmark ({BENCHMARK} buy-and-hold):")
+        print(f"    End:       ${bench_end_cap:,.0f}  ({bench_ret_pct:+.1f}%)")
+        print(f"    Alpha:     {alpha:+.1f} pp   [{verdict}]")
     print(f"\n  Trade log:")
 
     display_cols = ["ticker","direction","entry_date","entry","sl","tp",
