@@ -4,20 +4,22 @@ Run the long-only technical analysis scanner across the top 100 S&P 500 stocks b
 
 ## Step 1 — Run scanner
 
+Run from the repository root (Claude's working directory is already the project root; if running manually, `cd` into the repo first).
+
 ```bash
-cd /home/talekien1710/personal_project/ai-stock-investment && .venv/bin/python3 scripts/sma200_filter.py
+.venv/bin/python3 scripts/sma200_filter.py
 ```
 
 Force-refresh universe (if it's been >7 days or you want latest market cap ranking):
 
 ```bash
-cd /home/talekien1710/personal_project/ai-stock-investment && .venv/bin/python3 scripts/sma200_filter.py --refresh
+.venv/bin/python3 scripts/sma200_filter.py --refresh
 ```
 
 First-time setup (if .venv missing):
 
 ```bash
-cd /home/talekien1710/personal_project/ai-stock-investment && uv venv .venv -q && uv pip install yfinance pandas lxml requests --python .venv/bin/python3 -q
+uv venv .venv -q && uv pip install yfinance pandas lxml requests --python .venv/bin/python3 -q
 ```
 
 ## Step 2 — Interpret output
