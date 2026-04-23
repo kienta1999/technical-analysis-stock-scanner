@@ -249,6 +249,26 @@ L2_MIN_VOL_RATIO = 1.3   (changed from 1.0 — tuning session 2)
 
 Both changes fit the same story: *volume conviction at the trigger gate matters as much as volume in the quality score*.
 
+### Setup-by-setup stats in current config (41 trades, 2y)
+
+| Setup                     | Trades | Wins | Flat (BE) | Losses | Win rate* | Avg P&L/trade |
+| ------------------------- | ------ | ---- | --------- | ------ | --------- | ------------- |
+| L1 Ride Uptrend           | 20     | 8    | 6         | 6      | 57%       | +2.4%         |
+| L3 VWAP Support           | 17     | 8    | 2         | 7      | 53%       | +1.1%         |
+| L2 MACD Cross             | 3      | 2    | 0         | 1      | 67%       | +6.0%         |
+| L4 Pre-Golden Cross       | 1      | 1*   | 0         | 0      | —         | +1.8%         |
+
+*Win rate excludes BE-flat trades (trailing-to-breakeven saved a would-be loser). L4 exit was TIME-stop positive.
+
+### Priority for future tuning rounds
+
+1. **L3 VWAP Support** — highest frequency × lowest per-trade edge = biggest lever. Vol threshold already proven to hurt (mean-reversion setup; high vol on dips = distribution). Next dimensions: VWAP distance, RSI floor, SL/TP ratios.
+2. **L1 Ride Uptrend** — biggest single contributor by total. Volume already tuned. Try RSI, BB-mid window, or pullback-proximity next.
+3. **L2 MACD Cross** — best per-trade (+6.0%), only 3 triggers/2y. Last night's grid hinted `L2_RSI_MAX: 70→75` and `L2_TP_ATR: 5→6` might help — untested in continuous mode.
+4. **L4 Pre-Golden Cross** — n=1, untouchable until universe broadens.
+
+**Key methodological rule going forward:** always re-run `scripts/backtest.py` for continuous validation after ANY tune.py experiment. Per-window numbers can mislead in both magnitude and direction.
+
 ---
 
 ## MCP Servers (optional tooling)

@@ -200,19 +200,17 @@ def run_one(raw, tickers, all_dates, bt_dates, bench_ret):
 # ─────────────────────────────────────────────────────────────────────────────
 
 GRID = {
-    # L2 — MACD Cross
-    "L2_MIN_VOL_RATIO":   [1.0, 1.3],          # test if L1's vol finding generalizes
-    "L2_RSI_MIN":         [45, 50],            # loosen lower edge of sweet spot
-    "L2_RSI_MAX":         [65, 70, 75],        # loosen upper edge
-    "L2_TP_ATR":          [4.0, 5.0, 6.0],     # default 5.0; test wider/tighter
-
-    # L3 — VWAP Support
-    "L3_MIN_VOL_RATIO":   [1.0, 1.3],
-    "L3_VWAP_DIST_MAX":   [1.5, 2.5],          # default 1.5; test wider VWAP touch zone
-    "L3_MIN_RSI":         [40, 45],            # loosen RSI floor
+    # L3 — VWAP Support (round 3: non-volume dimensions)
+    # L3_MIN_VOL_RATIO stays at 1.0 — we proved raising it breaks L3 (mean-reversion
+    # setup; heavy vol on dips = distribution, not conviction)
+    "L3_VWAP_DIST_MAX":   [1.0, 1.5, 2.0, 3.0],  # default 1.5; tighter = only real touches
+    "L3_MIN_RSI":         [40, 45, 50],           # default 45; test both directions
+    "L3_MIN_ABOVE_MID_5D":[0, 1, 2],              # default 1; how many of last 5 above BB mid
+    "L3_SL_ATR":          [1.5, 2.0, 2.5],        # default 2.0; tighter = smaller losses
+    "L3_TP_ATR":          [2.5, 3.0, 4.0],        # default 3.0; VWAP bounces short
 }
-# = 2 × 2 × 3 × 3 × 2 × 2 × 2 = 288 variations
-# L1 stays at the post-tuning defaults (L1_MIN_VOL_RATIO=1.3 already applied)
+# = 4 × 3 × 3 × 3 × 3 = 324 variations
+# L1 and L2 stay at post-tuning defaults (vol threshold 1.3 applied)
 
 
 def build_variations():
@@ -220,14 +218,13 @@ def build_variations():
     keys = list(GRID.keys())
     for combo in itertools.product(*GRID.values()):
         overrides = dict(zip(keys, combo))
-        # Compact name: L2V1.3_L2R45-70_L2TP5.0_L3V1.3_L3VW2.5_L3R40
+        # Compact name: L3VW2.0_L3R45_L3BB1_L3SL2.0_L3TP3.0
         short = (
-            f"L2V{overrides['L2_MIN_VOL_RATIO']}"
-            f"_L2R{overrides['L2_RSI_MIN']}-{overrides['L2_RSI_MAX']}"
-            f"_L2TP{overrides['L2_TP_ATR']}"
-            f"_L3V{overrides['L3_MIN_VOL_RATIO']}"
-            f"_L3VW{overrides['L3_VWAP_DIST_MAX']}"
+            f"L3VW{overrides['L3_VWAP_DIST_MAX']}"
             f"_L3R{overrides['L3_MIN_RSI']}"
+            f"_L3BB{overrides['L3_MIN_ABOVE_MID_5D']}"
+            f"_L3SL{overrides['L3_SL_ATR']}"
+            f"_L3TP{overrides['L3_TP_ATR']}"
         )
         variations.append((short, overrides))
     return variations
