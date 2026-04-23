@@ -63,7 +63,7 @@ def run(force_refresh: bool = False) -> None:
         sma200  = ind["sma200"]
         sma50   = ind["sma50"]
         pct200  = ind["price_vs_sma200_pct"]
-        trend   = "↑" if ind["golden_cross"] else "↓"
+        trend   = "↑" if ind["sma50_above_sma200"] else "↓"
 
         if ind["price_above_sma200"]:
             long_rows.append({
@@ -136,7 +136,7 @@ def run(force_refresh: bool = False) -> None:
         print(f"    Entry: {row['entry']}  SL: {row['sl']}  TP: {row['tp']}  R:R {row['rr']}")
         print(f"    RSI: {row['rsi']:.0f}  |  Vol: {row['vol_ratio']:.1f}x MA  |  ATR: {row['atr_pct']:.1f}%")
         print(f"    MACD hist: {row['macd_hist']:+.3f}  |  BB pos: {row['above_mid_5d']}/5d above mid")
-        print(f"    VWAP dist: {row['price_vs_vwap_pct']:+.1f}%  |  Golden cross: {row['golden_cross']}")
+        print(f"    VWAP dist: {row['price_vs_vwap_pct']:+.1f}%  |  SMA50>SMA200: {row['sma50_above_sma200']}")
         print(f"    Timeframe: {row['timeframe']}")
         print(f"    Notes: {row['notes']}")
 

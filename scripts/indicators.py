@@ -68,8 +68,8 @@ def compute(df: pd.DataFrame) -> dict:
     # Pullback check: price within 3% of SMA50 in last 3 bars
     near_sma50_recently = bool(((c.tail(3) - sma50.tail(3)).abs() / sma50.tail(3) < 0.03).any())
 
-    # Golden / death cross (SMA50 vs SMA200)
-    golden_cross = bool(sma50.iloc[-1] > sma200.iloc[-1])
+    # Trend state (SMA50 vs SMA200) — current relationship, not the cross event
+    sma50_above_sma200 = bool(sma50.iloc[-1] > sma200.iloc[-1])
     cross_recent = abs(sma50.iloc[-1] - sma200.iloc[-1]) / sma200.iloc[-1] < 0.02  # within 2%
 
     return {
@@ -95,7 +95,7 @@ def compute(df: pd.DataFrame) -> dict:
         "is_green":     bool(is_green.iloc[-1]),
         "vwap":         round(float(vwap.iloc[-1]), 2),
         # ── Context ───────────────────────────────────────────────────
-        "golden_cross":       golden_cross,
+        "sma50_above_sma200": sma50_above_sma200,
         "cross_recent":       bool(cross_recent),
         "above_mid_5d":       above_mid_5d,
         "below_mid_5d":       below_mid_5d,

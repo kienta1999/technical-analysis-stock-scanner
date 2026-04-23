@@ -31,7 +31,7 @@ def _long_setups(ind: dict, p: float, atr: float) -> list[dict]:
     # ── L1: Ride the Uptrend ─────────────────────────────────────────────────
     # Consistent above BB mid → pullback to SMA50 → green vol spike
     if (
-        ind["golden_cross"]               # SMA50 > SMA200
+        ind["sma50_above_sma200"]         # SMA50 > SMA200
         and ind["above_mid_5d"] >= 3      # price mostly above BB mid
         and ind["rsi"] > 50
         and ind["near_sma50_recently"]    # recent pullback to SMA50
@@ -66,7 +66,7 @@ def _long_setups(ind: dict, p: float, atr: float) -> list[dict]:
     # Price just above VWAP (dipping toward it as support)
     vd = ind["price_vs_vwap_pct"]
     if (
-        ind["golden_cross"]
+        ind["sma50_above_sma200"]
         and 0 < vd < 1.5
         and ind["rsi"] > 45
         and ind["above_mid_5d"] > 0
@@ -83,7 +83,7 @@ def _long_setups(ind: dict, p: float, atr: float) -> list[dict]:
     # ── L4: Pre-Golden Cross Reversal ────────────────────────────────────────
     # SMA50 approaching SMA200 from below, price already above SMA200
     if (
-        not ind["golden_cross"]
+        not ind["sma50_above_sma200"]
         and ind["cross_recent"]           # SMA50/200 gap < 2%
         and ind["rsi"] > 45
         and ind["is_green"]

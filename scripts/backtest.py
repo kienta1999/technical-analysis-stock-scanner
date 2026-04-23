@@ -40,7 +40,7 @@ def quality(row: dict) -> float:
     atr_pct   = row.get("atr_pct", 2.5)
     direction = row.get("direction", "LONG")
     setup     = row.get("setup", "")
-    golden    = row.get("golden_cross", False)
+    uptrend   = row.get("sma50_above_sma200", False)
     macd_hist = row.get("macd_hist", 0)
 
     # Volume conviction (up to 35 pts)
@@ -59,8 +59,8 @@ def quality(row: dict) -> float:
     elif 1.0 <= atr_pct <= 5.0: q += 10
 
     # Trend alignment bonus
-    if direction == "LONG"  and golden: q += 10
-    if direction == "SHORT" and not golden: q += 10
+    if direction == "LONG"  and uptrend: q += 10
+    if direction == "SHORT" and not uptrend: q += 10
 
     # MACD histogram aligned with direction
     if direction == "LONG"  and macd_hist > 0: q += 5
