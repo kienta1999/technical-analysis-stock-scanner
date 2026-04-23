@@ -5,15 +5,22 @@ Parameter tuner with train/test split and grid search.
   In-sample (tune on):     2024-04-20 → 2025-04-20  (Year 1)
   Out-of-sample (validate): 2025-04-20 → 2026-04-20  (Year 2)
 
-Generates a Cartesian-product grid of ~108 variations across MIN_QUALITY_SCORE,
-L1/L4 SL/TP multipliers, and L1 volume threshold.
+L2/L3 grid (round 2, 2026-04-23): probes whether the MACD Cross and VWAP
+Support setups have over-tight thresholds. Holds L1 at the post-tuning
+defaults (L1_MIN_VOL_RATIO=1.3) and varies L2 vol/RSI/TP and L3 vol/VWAP
+distance/RSI. 288 Cartesian-product variations.
 
 OHLCV data is cached to data/raw_ohlcv_2y.pkl (7-day TTL) to avoid yfinance
 rate-limit hits on repeated runs. Delete the file or pass --refresh to bust.
 
 Output is intentionally minimal: only variations with alpha >=10pp on BOTH
-windows are printed in the final table (plus baseline as reference). This
-keeps the output cheap to read in long sessions.
+windows are printed in the final table (plus baseline as reference). Use the
+fallback top-5-by-min-alpha if nothing qualifies.
+
+NOTE: tune.py's per-window alphas are useful for RANKING parameter directions
+but are NOT a reliable proxy for continuous backtest magnitude. Always
+re-validate any winner by running scripts/backtest.py with the new defaults
+before committing.
 """
 
 import sys
@@ -193,13 +200,19 @@ def run_one(raw, tickers, all_dates, bt_dates, bench_ret):
 # ─────────────────────────────────────────────────────────────────────────────
 
 GRID = {
-    "MIN_QUALITY_SCORE":  [25, 50, 60],
-    "L1_SL_ATR":          [1.5, 2.0, 2.5],
-    "L1_TP_ATR":          [4.0, 5.0],
-    "L1_MIN_VOL_RATIO":   [1.0, 1.3],
-    "L4_TP_ATR":          [3.0, 4.0, 5.0],
+    # L2 — MACD Cross
+    "L2_MIN_VOL_RATIO":   [1.0, 1.3],          # test if L1's vol finding generalizes
+    "L2_RSI_MIN":         [45, 50],            # loosen lower edge of sweet spot
+    "L2_RSI_MAX":         [65, 70, 75],        # loosen upper edge
+    "L2_TP_ATR":          [4.0, 5.0, 6.0],     # default 5.0; test wider/tighter
+
+    # L3 — VWAP Support
+    "L3_MIN_VOL_RATIO":   [1.0, 1.3],
+    "L3_VWAP_DIST_MAX":   [1.5, 2.5],          # default 1.5; test wider VWAP touch zone
+    "L3_MIN_RSI":         [40, 45],            # loosen RSI floor
 }
-# = 3 × 3 × 2 × 2 × 3 = 108 variations
+# = 2 × 2 × 3 × 3 × 2 × 2 × 2 = 288 variations
+# L1 stays at the post-tuning defaults (L1_MIN_VOL_RATIO=1.3 already applied)
 
 
 def build_variations():
@@ -207,13 +220,14 @@ def build_variations():
     keys = list(GRID.keys())
     for combo in itertools.product(*GRID.values()):
         overrides = dict(zip(keys, combo))
-        # Compact name: MQ50_L1SL2.0_L1TP5.0_L1V1.3_L4TP4.0
+        # Compact name: L2V1.3_L2R45-70_L2TP5.0_L3V1.3_L3VW2.5_L3R40
         short = (
-            f"MQ{overrides['MIN_QUALITY_SCORE']}"
-            f"_L1SL{overrides['L1_SL_ATR']}"
-            f"_L1TP{overrides['L1_TP_ATR']}"
-            f"_L1V{overrides['L1_MIN_VOL_RATIO']}"
-            f"_L4TP{overrides['L4_TP_ATR']}"
+            f"L2V{overrides['L2_MIN_VOL_RATIO']}"
+            f"_L2R{overrides['L2_RSI_MIN']}-{overrides['L2_RSI_MAX']}"
+            f"_L2TP{overrides['L2_TP_ATR']}"
+            f"_L3V{overrides['L3_MIN_VOL_RATIO']}"
+            f"_L3VW{overrides['L3_VWAP_DIST_MAX']}"
+            f"_L3R{overrides['L3_MIN_RSI']}"
         )
         variations.append((short, overrides))
     return variations
