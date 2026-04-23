@@ -54,17 +54,18 @@ All setups require a **green candle** AND **volume > 20-day volume MA** on the t
 
 Defined in `scripts/signals.py` (`quality()`). Used by **both** the backtest (picks the highest-scoring trigger each day) and the live scanner (surfaced as a `Quality` column to help rank when multiple setups trigger).
 
-| Factor                | Max pts | Full credit                    | Half credit              |
-| --------------------- | ------- | ------------------------------ | ------------------------ |
-| Volume conviction     | 35      | vol_ratio ≥ 2.0× MA (linear)   | 1.5× = 17 pts            |
-| RSI sweet spot        | 30      | 55–65 for longs                | 50–70 for longs (15 pts) |
-| ATR Goldilocks        | 20      | 1.5–3.5%                       | 1.0–5.0% (10 pts)        |
-| Trend alignment       | 10      | LONG + SMA50 > SMA200          | —                        |
-| MACD alignment        | 5       | LONG + macd_hist > 0           | —                        |
+| Factor            | Max pts | Full credit                  | Half credit              |
+| ----------------- | ------- | ---------------------------- | ------------------------ |
+| Volume conviction | 35      | vol_ratio ≥ 2.0× MA (linear) | 1.5× = 17 pts            |
+| RSI sweet spot    | 30      | 55–65 for longs              | 50–70 for longs (15 pts) |
+| ATR Goldilocks    | 20      | 1.5–3.5%                     | 1.0–5.0% (10 pts)        |
+| Trend alignment   | 10      | LONG + SMA50 > SMA200        | —                        |
+| MACD alignment    | 5       | LONG + macd_hist > 0         | —                        |
 
 `MIN_QUALITY_SCORE = 25` is the floor — below this the backtest sits in cash and the operator should skip the trade.
 
 Score buckets to keep in mind:
+
 - **80–100**: premium setup (BA's Pre-Golden Cross today scores 90 with 2.4× volume)
 - **60–79**: workable but watch the weak factor (usually volume)
 - **40–59**: marginal — skip unless multiple setups confirm same ticker
@@ -204,3 +205,5 @@ This is backtested on historical data across a 2-year window. Past performance d
 ## Claude session
 
 claude --resume 42f69484-bc88-40bb-b701-fd0e2a251dd0 --dangerously-skip-permissions
+
+claude --resume c4c65570-757b-44ec-9f03-5aa0b85044cd --dangerously-skip-permissions
