@@ -133,8 +133,9 @@ def run():
     tickers  = universe["Ticker"].tolist()
     dl_tickers = tickers + [BENCHMARK]
 
-    # Download enough history: SMA200 needs 200 trading days before start
-    fetch_start = date(2023, 7, 1)
+    # Download enough history: SMA200 needs 200 trading days (~290 calendar
+    # days) of warm-up. Use 300 to be safe and auto-track START_DATE changes.
+    fetch_start = START_DATE - timedelta(days=300)
     print(f"Downloading OHLCV from {fetch_start} to {END_DATE}...", flush=True)
     raw = yf.download(
         dl_tickers, start=fetch_start.isoformat(), end=END_DATE.isoformat(),

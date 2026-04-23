@@ -29,7 +29,7 @@ import pickle
 import itertools
 import warnings
 from pathlib import Path
-from datetime import date
+from datetime import date, timedelta
 
 warnings.filterwarnings("ignore")
 
@@ -237,9 +237,11 @@ def main():
 
     universe = load_universe()
     tickers = universe["Ticker"].tolist()
+    # SMA200 needs ~290 calendar days of warm-up before the earliest scan date
+    fetch_start = IN_START - timedelta(days=300)
     raw = fetch_or_load_data(
         tickers + [BENCHMARK],
-        start="2023-07-01", end=OUT_END.isoformat(),
+        start=fetch_start.isoformat(), end=OUT_END.isoformat(),
         refresh=refresh,
     )
     all_dates = sorted(set(raw.index.date))
