@@ -44,13 +44,18 @@ Each setup includes: Ticker | Setup type | **Quality** | Direction | Entry | SL 
 
 | Setup | Key conditions | SL | TP | Timeframe |
 |---|---|---|---|---|
-| Ride Uptrend | SMA50>SMA200, price ≥3/5d above BB mid, RSI>50, pullback to SMA50, green vol>MA | 2× ATR | 4× ATR | 1D → 3–6 wk options |
-| MACD Cross | MACD hist just crossed zero↑, RSI 50–70, price above SMA50 not touching upper BB, green vol>MA | 2.5× ATR | 5× ATR | 1D → 3–6 wk options |
+| Ride Uptrend | SMA50>SMA200, price ≥3/5d above BB mid, RSI>50, pullback to SMA50, green **vol>1.3× MA** | 2× ATR | 4× ATR | 1D → 3–6 wk options |
+| MACD Cross | MACD hist just crossed zero↑, RSI 50–70, price above SMA50 not touching upper BB, green **vol>1.3× MA** | 2.5× ATR | 5× ATR | 1D → 3–6 wk options |
 | VWAP Support | SMA50>SMA200, price 0–1.5% above VWAP (dipping toward it), RSI>45, green vol>MA | 2× ATR | 3× ATR | 1H/4H → 2–3 wk options |
 | Pre-Golden Cross | SMA50 approaching SMA200 (<2% gap), price already>SMA200, RSI>45, strong vol>1.2× | 2× ATR | 4× ATR | 1D → 3–6 wk options |
 
-**Volume + ATR rules (always apply):**
-- Green candle AND volume > vol MA20 — else skip, wait for confirmation
+**Volume thresholds per setup (tuned — see README):**
+- L1 Ride Uptrend & L2 MACD Cross: **vol > 1.3× MA** (continuation setups — high volume = conviction)
+- L3 VWAP Support: vol > 1.0× MA (mean-reversion — heavy vol on dips can signal distribution, not buying)
+- L4 Pre-Golden Cross: vol > 1.2× MA (stricter — need conviction for early entry before the cross)
+
+**Hard rules (always apply):**
+- Green candle required on trigger bar — else skip, wait for confirmation
 - ATR% ≤ 4.0 (scanner enforces) — extreme-vol names are filtered out as a guardrail against blowup losses
 
 ### Quality score (0–100) — how to read it
@@ -129,4 +134,4 @@ When market breadth drops below 30% (majority of top 100 below SMA200):
 - Choppy VWAP (price crossing VWAP repeatedly) = no trade
 
 ### Why long-only
-The short side was originally included but **lost -25.6% over 2025-04-20 → 2026-04-20 vs SPY +39.8%** (alpha -65.4pp) — most shorts were clipped by the dominant bull tape before any move developed. Removing the short side and widening ATR stops flipped the strategy from losing to the +50pp/2y alpha it delivers today.
+The short side was originally included but **lost -25.6% over 2025-04-20 → 2026-04-20 vs SPY +39.8%** (alpha -65.4pp) — most shorts were clipped by the dominant bull tape before any move developed. Removing the short side and widening ATR stops flipped the strategy from losing to the +76.3pp/2y alpha it delivers today (post-tuning).
