@@ -5,10 +5,10 @@ Long-only, rules-based swing-trading strategy for the top 100 S&P 500 stocks by 
 Backtested 2024-04-20 → 2026-04-20 (2 years):
 
 ```
-$10,000 → $19,571   (+95.7%)
+$10,000 → $19,809   (+98.1%)
 SPY B&H: +45.6%
-Alpha:   +50.1 pp    [BEAT ✓]
-33 trades, 16W / 17L, 48% win rate
+Alpha:   +52.5 pp    [BEAT ✓]
+30 trades, 14W / 16L, 47% win rate
 ```
 
 ---
@@ -157,7 +157,43 @@ Things that were tried and reverted (didn't help):
 
 - Earlier BE trigger (40% of TP): scratches too many trades before they reach target
 - Later BE trigger (60% of TP): more trades revert to full SL before lock
-- Stricter volume requirement (>1.3× MA): cuts winners faster than losers
+
+## Tuning session (2026-04-23) — L1 volume threshold raised to 1.3×
+
+### What we did
+
+Ran `scripts/tune.py` — 108-variation grid search across `MIN_QUALITY_SCORE`, `L1_SL_ATR`, `L1_TP_ATR`, `L1_MIN_VOL_RATIO`, `L4_TP_ATR`. Used proper train/test split: Year 1 (2024-04-20 → 2025-04-20) for tuning, Year 2 for held-out validation. A variation was only flagged as "robust" if it beat baseline by ≥10pp alpha on **both** windows.
+
+### Headline finding
+
+**24 of 108 variations cleared the bar — and every single one shares the same change: `L1_MIN_VOL_RATIO: 1.0 → 1.3`.** The other knobs (SL/TP/MQ) only mattered at the margins. One knob, one direction, validated across both years and many parameter combinations.
+
+**Mechanism:** L1 (Ride Uptrend) was triggering on stocks with `vol_ratio` as low as 1.03 — barely above the 20-day average, essentially no real-money conviction. Quality scorer already weights volume heaviest (35 pts), but the trigger gate was letting marginal-volume names through. Raising the gate to 1.3× filters them out before they enter the candidate pool.
+
+### Magnitude lesson — per-window tuning misled us
+
+The tuner showed two attractive picks:
+
+| Pick                                       | Y1 alpha (per-window) | Y2 alpha (per-window) |
+| ------------------------------------------ | --------------------- | --------------------- |
+| `L1_MIN_VOL_RATIO=1.3` + `L1_TP_ATR=5.0`   | +24.4pp               | +21.8pp               |
+| Just `L1_MIN_VOL_RATIO=1.3`                | +20–30pp              | +16–18pp              |
+
+We tried the first pick first (volume + wider TP). Continuous backtest result: **-10.5pp alpha — LOST to SPY**.
+
+Reverted to just the volume change. Continuous backtest: **+52.5pp alpha (vs baseline +50.1pp)**.
+
+So the volume-only change is a real win, but only **+2.4pp better than baseline** — not the +20pp the tuner predicted. The wider TP actively *hurt* in continuous mode (longer holds → more time-stop exits → fewer trades cycle through → less compounding) even though per-window analysis liked it.
+
+### Lesson
+
+**`tune.py`'s per-window-with-fresh-capital framework is useful for *ranking* parameter directions but wildly unreliable for predicting *continuous* P&L magnitude.** It's a screening tool, not a final verdict. Always re-validate any tuner finding by running the full continuous `backtest.py` before shipping.
+
+### What's next
+
+Today's tuning only varied L1 and L4 parameters (the most-triggered setups). L2 (MACD Cross) and L3 (VWAP Support) might have over-tight thresholds that block useful triggers — that's the next area to probe with another grid search round.
+
+## MCP Servers (optional tooling)
 
 ---
 

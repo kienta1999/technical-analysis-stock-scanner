@@ -16,7 +16,7 @@ then re-run scripts/backtest.py to see the impact on the 2-year return.
 # L1: Ride Uptrend — pullback to SMA50 in an established uptrend
 L1_MIN_ABOVE_MID_5D   = 3     # of last 5 closes, how many must be above BB mid
 L1_MIN_RSI            = 50    # momentum floor (>50 = bullish bias)
-L1_MIN_VOL_RATIO      = 1.0   # today's volume must beat 20-day MA
+L1_MIN_VOL_RATIO      = 1.3   # today's volume must beat 20-day MA by 30%+
 L1_SL_ATR             = 2.0   # stop-loss distance = N × ATR
 L1_TP_ATR             = 4.0   # take-profit distance = N × ATR
 

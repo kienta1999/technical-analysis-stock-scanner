@@ -1,20 +1,31 @@
 #!/usr/bin/env python3
 """
-Parameter tuner with train/test split.
+Parameter tuner with train/test split and grid search.
 
   In-sample (tune on):     2024-04-20 → 2025-04-20  (Year 1)
   Out-of-sample (validate): 2025-04-20 → 2026-04-20  (Year 2)
 
-A variation is real alpha only if it beats baseline on BOTH windows.
-A win on in-sample only = overfit, discard.
+Generates a Cartesian-product grid of ~108 variations across MIN_QUALITY_SCORE,
+L1/L4 SL/TP multipliers, and L1 volume threshold.
 
-Downloads OHLCV once and runs many parameter combos against the same data.
+OHLCV data is cached to data/raw_ohlcv_2y.pkl (7-day TTL) to avoid yfinance
+rate-limit hits on repeated runs. Delete the file or pass --refresh to bust.
+
+Output is intentionally minimal: only variations with alpha >=10pp on BOTH
+windows are printed in the final table (plus baseline as reference). This
+keeps the output cheap to read in long sessions.
 """
 
+import sys
+import time
+import pickle
+import itertools
 import warnings
+from pathlib import Path
+from datetime import date
+
 warnings.filterwarnings("ignore")
 
-from datetime import date
 import pandas as pd
 import yfinance as yf
 
@@ -29,10 +40,46 @@ OUT_START  = date(2025, 4, 20)
 OUT_END    = date(2026, 4, 20)
 
 CAPITAL_INIT = 10_000.0
-TIME_STOP_DAYS = 40
 MAX_ATR_PCT = 4.0
 BENCHMARK   = "SPY"
 
+CACHE_PATH = Path(__file__).parent.parent / "data" / "raw_ohlcv_2y.pkl"
+CACHE_TTL_DAYS = 7
+
+ALPHA_REPORT_FLOOR = 10.0  # only print variations with alpha >= this on BOTH windows
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Data caching
+# ─────────────────────────────────────────────────────────────────────────────
+
+def fetch_or_load_data(tickers, start, end, refresh=False):
+    if not refresh and CACHE_PATH.exists():
+        age_days = (time.time() - CACHE_PATH.stat().st_mtime) / 86400
+        if age_days < CACHE_TTL_DAYS:
+            print(f"Loaded OHLCV from cache ({age_days:.1f}d old). "
+                  f"Pass --refresh to bust.", flush=True)
+            with open(CACHE_PATH, "rb") as f:
+                return pickle.load(f)
+        else:
+            print(f"Cache stale ({age_days:.1f}d > {CACHE_TTL_DAYS}d TTL), "
+                  f"refreshing...", flush=True)
+
+    print(f"Downloading OHLCV ({start} → {end})...", flush=True)
+    raw = yf.download(
+        tickers, start=start, end=end, interval="1d",
+        auto_adjust=True, progress=False,
+    )
+    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(CACHE_PATH, "wb") as f:
+        pickle.dump(raw, f)
+    print(f"Cached to {CACHE_PATH}", flush=True)
+    return raw
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Backtest simulation
+# ─────────────────────────────────────────────────────────────────────────────
 
 def simulate(raw, tickers, all_dates, bt_dates):
     """Run one backtest pass. Reads sg.MIN_QUALITY_SCORE dynamically."""
@@ -141,14 +188,48 @@ def run_one(raw, tickers, all_dates, bt_dates, bench_ret):
             "return": ret, "alpha": alpha, "end_cap": end_cap}
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Grid generation
+# ─────────────────────────────────────────────────────────────────────────────
+
+GRID = {
+    "MIN_QUALITY_SCORE":  [25, 50, 60],
+    "L1_SL_ATR":          [1.5, 2.0, 2.5],
+    "L1_TP_ATR":          [4.0, 5.0],
+    "L1_MIN_VOL_RATIO":   [1.0, 1.3],
+    "L4_TP_ATR":          [3.0, 4.0, 5.0],
+}
+# = 3 × 3 × 2 × 2 × 3 = 108 variations
+
+
+def build_variations():
+    variations = [("Baseline", {})]
+    keys = list(GRID.keys())
+    for combo in itertools.product(*GRID.values()):
+        overrides = dict(zip(keys, combo))
+        # Compact name: MQ50_L1SL2.0_L1TP5.0_L1V1.3_L4TP4.0
+        short = (
+            f"MQ{overrides['MIN_QUALITY_SCORE']}"
+            f"_L1SL{overrides['L1_SL_ATR']}"
+            f"_L1TP{overrides['L1_TP_ATR']}"
+            f"_L1V{overrides['L1_MIN_VOL_RATIO']}"
+            f"_L4TP{overrides['L4_TP_ATR']}"
+        )
+        variations.append((short, overrides))
+    return variations
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 def main():
-    print("Downloading OHLCV (one-time)...", flush=True)
+    refresh = "--refresh" in sys.argv
+
     universe = load_universe()
     tickers = universe["Ticker"].tolist()
-    raw = yf.download(
+    raw = fetch_or_load_data(
         tickers + [BENCHMARK],
         start="2023-07-01", end=OUT_END.isoformat(),
-        interval="1d", auto_adjust=True, progress=False,
+        refresh=refresh,
     )
     all_dates = sorted(set(raw.index.date))
     in_dates  = [d for d in all_dates if IN_START  <= d <= IN_END]
@@ -156,60 +237,69 @@ def main():
 
     in_bench  = spy_return(raw, in_dates)
     out_bench = spy_return(raw, out_dates)
-    print(f"In-sample  ({IN_START} → {IN_END}):    {len(in_dates)} days, SPY {in_bench:+.1f}%")
-    print(f"Out-sample ({OUT_START} → {OUT_END}):  {len(out_dates)} days, SPY {out_bench:+.1f}%\n")
+    print(f"\nIn-sample  ({IN_START} → {IN_END}):    {len(in_dates)} days, SPY {in_bench:+.1f}%")
+    print(f"Out-sample ({OUT_START} → {OUT_END}):  {len(out_dates)} days, SPY {out_bench:+.1f}%")
 
     baseline = snapshot_baseline()
+    variations = build_variations()
+    n = len(variations)
 
-    variations = [
-        ("Baseline", {}),
-        ("B: min_quality=55", {"MIN_QUALITY_SCORE": 55}),
-        ("E: heavier vol weight", {"Q_VOL_MAX_PTS": 50, "Q_RSI_SWEET_PTS": 20, "Q_RSI_OK_PTS": 10}),
-        ("F: B+E combined",
-            {"MIN_QUALITY_SCORE": 55, "Q_VOL_MAX_PTS": 50,
-             "Q_RSI_SWEET_PTS": 20, "Q_RSI_OK_PTS": 10}),
-        ("G: tighter SL (L1/L3/L4 SL 2.0->1.5)",
-            {"L1_SL_ATR": 1.5, "L3_SL_ATR": 1.5, "L4_SL_ATR": 1.5}),
-        ("H: min=45 (mid-pickier)", {"MIN_QUALITY_SCORE": 45}),
-        ("I: min=50", {"MIN_QUALITY_SCORE": 50}),
-        ("J: min=60", {"MIN_QUALITY_SCORE": 60}),
-    ]
+    print(f"\nRunning {n} variations (each tested on both windows)...")
+    print("Progress: ", end="", flush=True)
 
     results = []
-    for name, overrides in variations:
+    t0 = time.time()
+    for i, (name, overrides) in enumerate(variations):
         apply_overrides(baseline)
         apply_overrides(overrides)
-        print(f"Running: {name}", flush=True)
         in_res  = run_one(raw, tickers, all_dates, in_dates, in_bench)
         out_res = run_one(raw, tickers, all_dates, out_dates, out_bench)
-        results.append({"name": name, "in": in_res, "out": out_res})
-        print(f"  in:  trades={in_res['trades']:2d}  ret={in_res['return']:+.1f}%  alpha={in_res['alpha']:+.1f}pp")
-        print(f"  out: trades={out_res['trades']:2d}  ret={out_res['return']:+.1f}%  alpha={out_res['alpha']:+.1f}pp\n")
+        results.append({"name": name, "overrides": overrides,
+                        "in": in_res, "out": out_res})
+        print(".", end="", flush=True)
+        if (i + 1) % 50 == 0:
+            elapsed = time.time() - t0
+            print(f" [{i+1}/{n}, {elapsed/60:.1f}min]", flush=True)
+            print("Progress: ", end="", flush=True)
+    print(f"\nDone in {(time.time()-t0)/60:.1f}min.\n")
 
-    base_in_alpha  = results[0]["in"]["alpha"]
-    base_out_alpha = results[0]["out"]["alpha"]
+    base = results[0]
+    base_in_a, base_out_a = base["in"]["alpha"], base["out"]["alpha"]
 
-    print("\n" + "="*100)
-    print("  ROBUSTNESS CHECK — does the variation beat baseline on BOTH windows?")
-    print("="*100)
-    print(f"  {'variation':<48} {'in α':>10} {'out α':>10} {'Δ vs base':>12} {'verdict':>14}")
-    print("  " + "-"*98)
-    for r in results:
+    print("="*88)
+    print(f"  BASELINE: in α={base_in_a:+.1f}pp  |  out α={base_out_a:+.1f}pp  "
+          f"|  in trades={base['in']['trades']}, out trades={base['out']['trades']}")
+    print("="*88)
+
+    qualifying = [r for r in results[1:]
+                  if r["in"]["alpha"] >= ALPHA_REPORT_FLOOR
+                  and r["out"]["alpha"] >= ALPHA_REPORT_FLOOR]
+
+    print(f"\n{len(qualifying)} of {n-1} variations cleared "
+          f"the +{ALPHA_REPORT_FLOOR:.0f}pp floor on BOTH windows:\n")
+
+    if not qualifying:
+        # Fall back: show the top-5 by min(in, out) alpha so we still learn something
+        ranked = sorted(results[1:],
+                        key=lambda r: min(r["in"]["alpha"], r["out"]["alpha"]),
+                        reverse=True)
+        print("  (none qualified — showing top-5 by min-of-two-alphas as fallback)\n")
+        print(f"  {'variation':<55} {'in α':>9} {'out α':>9} {'min':>9}")
+        print("  " + "-"*86)
+        for r in ranked[:5]:
+            in_a, out_a = r["in"]["alpha"], r["out"]["alpha"]
+            print(f"  {r['name']:<55} {in_a:>+8.1f}p {out_a:>+8.1f}p "
+                  f"{min(in_a, out_a):>+8.1f}p")
+        return
+
+    # Sort by sum of alphas (proxy for both-window strength)
+    qualifying.sort(key=lambda r: r["in"]["alpha"] + r["out"]["alpha"], reverse=True)
+    print(f"  {'variation':<55} {'in α':>9} {'out α':>9} {'sum':>9}")
+    print("  " + "-"*86)
+    for r in qualifying:
         in_a, out_a = r["in"]["alpha"], r["out"]["alpha"]
-        delta_in  = in_a  - base_in_alpha
-        delta_out = out_a - base_out_alpha
-        if r["name"] == "Baseline":
-            verdict = "—"
-        elif delta_in > 0 and delta_out > 0:
-            verdict = "ROBUST ✓"
-        elif delta_in > 0 and delta_out <= 0:
-            verdict = "OVERFIT ✗"
-        elif delta_in <= 0 and delta_out > 0:
-            verdict = "lucky out"
-        else:
-            verdict = "worse"
-        print(f"  {r['name']:<48} {in_a:>+9.1f}p {out_a:>+9.1f}p "
-              f"{delta_in:>+5.1f}/{delta_out:>+5.1f}p {verdict:>14}")
+        print(f"  {r['name']:<55} {in_a:>+8.1f}p {out_a:>+8.1f}p "
+              f"{in_a + out_a:>+8.1f}p")
 
 
 if __name__ == "__main__":
