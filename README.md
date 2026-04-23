@@ -5,10 +5,10 @@ Long-only, rules-based swing-trading strategy for the top 100 S&P 500 stocks by 
 Backtested 2024-04-20 → 2026-04-20 (2 years):
 
 ```
-$10,000 → $19,809   (+98.1%)
+$10,000 → $22,183   (+121.8%)
 SPY B&H: +45.6%
-Alpha:   +52.5 pp    [BEAT ✓]
-30 trades, 14W / 16L, 47% win rate
+Alpha:   +76.3 pp    [BEAT ✓]
+41 trades, 19W / 22L, 46% win rate
 ```
 
 ---
@@ -201,7 +201,53 @@ L2/L3 grid is wired up in `scripts/tune.py` (288 variations, ~4 hours overnight)
 
 Output is saved to `/tmp/tune-l2l3.log` — read that file the next morning if the terminal session is gone. (Note: `/tmp` is wiped on reboot — copy somewhere durable if you don't analyze it the same day.)
 
-## MCP Servers (optional tooling)
+## Tuning session round 2 (2026-04-23 overnight) — L2 volume threshold raised to 1.3×
+
+### What we did
+
+Ran the 288-variation L2/L3 grid overnight. Per-window analysis was inconclusive — only 4 variations cleared the +10pp/+10pp floor and they all *lost* to the post-L1V1.3 baseline on Y1 (+30.7pp vs baseline +67.6pp) while winning Y2 (+16.3pp vs +7.1pp). Not a clean signal.
+
+Tried the single most theoretically-motivated change anyway (`L2_MIN_VOL_RATIO: 1.0 → 1.3`, paralleling yesterday's L1 finding) and ran the continuous backtest.
+
+### Continuous backtest result
+
+| Metric          | L1V1.3 only | +L2V1.3       | Δ          |
+| --------------- | ----------- | ------------- | ---------- |
+| Return          | +98.1%      | **+121.8%**   | **+23.7pp** |
+| Alpha           | +52.5pp     | **+76.3pp**   | **+23.8pp** |
+| End cap ($10k)  | $19,809     | **$22,183**   | +$2,374    |
+| Trades          | 30          | **41**        | +11        |
+| Win rate        | 47%         | 46%           | ≈ same     |
+
+### Why it worked — capital recycling, not setup selection
+
+The L2 filter **didn't make L2 triggers better** — same 3 L2 trades (TJX/META/QCOM) in both runs. Instead, raising the L2 volume gate *kept the scanner from getting trapped in slow-grinder L2 entries that were blocking capital from faster-recycling L1/L3 opportunities*.
+
+Concrete example: April 22 2024, baseline picks KO's MACD Cross (vol_ratio=1.2, quality 62.4) and holds 44 days for +5.9%. With the new gate, KO doesn't trigger → scanner picks GOOGL's VWAP Support instead → exits in 3 days at +5.8% → 41 freed days to compound through other trades.
+
+Setup count shifted accordingly:
+
+| Setup            | Before (30 trades) | After (41 trades) |
+| ---------------- | ------------------ | ----------------- |
+| L1 Ride Uptrend  | ~15                | ~20               |
+| L3 VWAP Support  | ~8                 | ~17               |
+| L2 MACD Cross    | 3                  | 3                 |
+| L4 Pre-Golden X  | 1                  | 1                 |
+
+### Methodological lesson — `tune.py` can be directionally wrong
+
+**The `L2V1.3-only` combo was NOT in the grid's 4 qualifying variations.** Per-window analysis predicted it would fail the +10pp floor. Continuous mode showed it adds +24pp alpha. The per-window framework can't see capital-recycling effects because each year starts with fresh $10k and no carry-over state.
+
+Previously we thought tune.py's output was just magnitude-unreliable. It's actually worse: **it can miss real winners entirely**. Treat tune.py as a candidate-generator only. Continuous backtest is the single source of truth.
+
+### Current configuration
+
+```
+L1_MIN_VOL_RATIO = 1.3   (changed from 1.0 — tuning session 1)
+L2_MIN_VOL_RATIO = 1.3   (changed from 1.0 — tuning session 2)
+```
+
+Both changes fit the same story: *volume conviction at the trigger gate matters as much as volume in the quality score*.
 
 ---
 

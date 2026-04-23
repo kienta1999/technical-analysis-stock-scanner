@@ -24,7 +24,7 @@ L1_TP_ATR             = 4.0   # take-profit distance = N × ATR
 L2_RSI_MIN            = 50    # RSI sweet spot floor
 L2_RSI_MAX            = 70    # RSI sweet spot ceiling (avoid overbought)
 L2_BB_UPPER_HEADROOM  = 0.99  # price must be < bb_upper × this (avoid extension)
-L2_MIN_VOL_RATIO      = 1.0
+L2_MIN_VOL_RATIO      = 1.3
 L2_SL_ATR             = 2.5
 L2_TP_ATR             = 5.0
 

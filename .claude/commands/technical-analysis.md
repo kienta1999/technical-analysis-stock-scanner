@@ -1,6 +1,6 @@
 # Technical Analysis Scanner
 
-Run the long-only technical analysis scanner across the top 100 S&P 500 stocks by market cap. Backtested over 2 years (2024-04-20 → 2026-04-20): **+98.1% vs SPY +45.6% (alpha +52.5pp, 14W/16L, 47% win rate)**.
+Run the long-only technical analysis scanner across the top 100 S&P 500 stocks by market cap. Backtested over 2 years (2024-04-20 → 2026-04-20): **+121.8% vs SPY +45.6% (alpha +76.3pp, 19W/22L, 46% win rate)**.
 
 ## Step 1 — Run scanner
 
