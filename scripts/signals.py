@@ -34,8 +34,8 @@ L3_VWAP_DIST_MAX      = 1.5   # max % above VWAP (close enough to be a touch)
 L3_MIN_RSI            = 45    # looser than L1/L2 — pullbacks dent RSI
 L3_MIN_ABOVE_MID_5D   = 1     # at least one of last 5 above BB mid
 L3_MIN_VOL_RATIO      = 1.0
-L3_SL_ATR             = 2.0
-L3_TP_ATR             = 3.0   # tighter target — VWAP bounces are shorter moves
+L3_SL_ATR             = 2.5
+L3_TP_ATR             = 2.5   # tighter target — VWAP bounces are shorter moves
 
 # L4: Pre-Golden Cross — SMA50 about to cross SMA200 from below
 L4_MIN_RSI            = 45

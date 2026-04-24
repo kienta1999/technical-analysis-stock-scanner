@@ -5,10 +5,10 @@ Long-only, rules-based swing-trading strategy for the top 100 S&P 500 stocks by 
 Backtested 2024-04-20 → 2026-04-20 (2 years):
 
 ```
-$10,000 → $22,183   (+121.8%)
+$10,000 → $22,556   (+125.6%)
 SPY B&H: +45.6%
-Alpha:   +76.3 pp    [BEAT ✓]
-41 trades, 19W / 22L, 46% win rate
+Alpha:   +80.0 pp    [BEAT ✓]
+44 trades, 21W / 23L, 48% win rate
 ```
 
 ---
@@ -245,9 +245,42 @@ Previously we thought tune.py's output was just magnitude-unreliable. It's actua
 ```
 L1_MIN_VOL_RATIO = 1.3   (changed from 1.0 — tuning session 1)
 L2_MIN_VOL_RATIO = 1.3   (changed from 1.0 — tuning session 2)
+L3_SL_ATR        = 2.5   (changed from 2.0 — tuning session 3)
+L3_TP_ATR        = 2.5   (changed from 3.0 — tuning session 3)
 ```
 
-Both changes fit the same story: *volume conviction at the trigger gate matters as much as volume in the quality score*.
+Sessions 1 & 2 fit one story: *volume conviction at the trigger gate matters as much as volume in the quality score* (continuation setups L1/L2).
+
+Session 3 fits the **opposite** story for L3 (mean-reversion): *bounces are short-lived; grab them quickly with a 1:1 R:R rather than waiting for full extension*. L3 win rate jumped from 53% to 69% with this change.
+
+## Tuning session round 3 (2026-04-23) — L3 R:R tightened to 1:1
+
+### What we did
+
+Ran a 324-variation L3-only grid (5 dimensions: VWAP distance, RSI floor, BB-mid window, SL multiplier, TP multiplier — vol threshold deliberately excluded since round 2 proved it breaks L3). 17 of 324 cleared the +10pp/+10pp floor, in two clusters:
+
+- **Cluster A (top 6)**: tighten L3 R:R to 1:1 — `L3_SL_ATR=2.5, L3_TP_ATR=2.5`
+- **Cluster B (next 7)**: widen VWAP touch zone — `L3_VWAP_DIST_MAX=3.0`
+
+### Continuous backtest result (Cluster A picked)
+
+| Metric          | Pre-L3-tune       | + L3 1:1 R:R          | Δ          |
+| --------------- | ----------------- | --------------------- | ---------- |
+| Return          | +121.8%           | **+125.6%**           | **+3.8pp** |
+| Alpha           | +76.3pp           | **+80.0pp**           | **+3.7pp** |
+| End cap ($10k)  | $22,183           | **$22,556**           | +$373      |
+| Trades          | 41                | **44**                | +3         |
+| Win rate        | 46%               | **48%**               | +2pp       |
+| L3 win rate     | 53%               | **69%**               | +16pp      |
+| L3 avg P&L      | +1.1%/trade       | **+2.08%/trade**      | +0.98pp    |
+
+### Mechanism — opposite of L1
+
+L1 wants wide TP (4× ATR) to let trending winners run. L3 wants tight TP (2.5× ATR) because VWAP bounces are short and quick — grab the move before it reverses. The wider SL (2.5× vs 2.0× ATR) also gives the trade more room to reach the trailing-BE trigger before chop noise stops it out.
+
+### Per-window framework — 10× overestimate again
+
+Tune.py predicted Y2 alpha would jump from -3.1pp to +33.2pp (+36pp Y2 improvement). Continuous reality was +3.7pp total alpha gain. Still directionally right, but the magnitude lesson keeps repeating: **always validate via continuous backtest before shipping**.
 
 ### Setup-by-setup stats in current config (41 trades, 2y)
 

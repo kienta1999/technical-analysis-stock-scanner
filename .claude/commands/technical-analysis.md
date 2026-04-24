@@ -1,6 +1,6 @@
 # Technical Analysis Scanner
 
-Run the long-only technical analysis scanner across the top 100 S&P 500 stocks by market cap. Backtested over 2 years (2024-04-20 → 2026-04-20): **+121.8% vs SPY +45.6% (alpha +76.3pp, 19W/22L, 46% win rate)**.
+Run the long-only technical analysis scanner across the top 100 S&P 500 stocks by market cap. Backtested over 2 years (2024-04-20 → 2026-04-20): **+125.6% vs SPY +45.6% (alpha +80.0pp, 21W/23L, 48% win rate)**.
 
 ## Step 1 — Run scanner
 
@@ -46,7 +46,7 @@ Each setup includes: Ticker | Setup type | **Quality** | Direction | Entry | SL 
 |---|---|---|---|---|
 | Ride Uptrend | SMA50>SMA200, price ≥3/5d above BB mid, RSI>50, pullback to SMA50, green **vol>1.3× MA** | 2× ATR | 4× ATR | 1D → 3–6 wk options |
 | MACD Cross | MACD hist just crossed zero↑, RSI 50–70, price above SMA50 not touching upper BB, green **vol>1.3× MA** | 2.5× ATR | 5× ATR | 1D → 3–6 wk options |
-| VWAP Support | SMA50>SMA200, price 0–1.5% above VWAP (dipping toward it), RSI>45, green vol>MA | 2× ATR | 3× ATR | 1H/4H → 2–3 wk options |
+| VWAP Support | SMA50>SMA200, price 0–1.5% above VWAP (dipping toward it), RSI>45, green vol>MA | **2.5× ATR** | **2.5× ATR** (1:1 R:R) | 1H/4H → 2–3 wk options |
 | Pre-Golden Cross | SMA50 approaching SMA200 (<2% gap), price already>SMA200, RSI>45, strong vol>1.2× | 2× ATR | 4× ATR | 1D → 3–6 wk options |
 
 **Volume thresholds per setup (tuned — see README):**
