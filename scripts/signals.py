@@ -224,17 +224,3 @@ def quality(row: dict) -> float:
         q += Q_MACD_ALIGN_PTS
 
     return round(q, 1)
-
-
-def market_regime(long_count: int, total: int) -> str:
-    rate = long_count / total
-    short_count = total - long_count
-    base = f"{long_count}L / {short_count}S of {total}"
-    if rate >= 0.70:
-        return f"STRONG BULL ({base}) — broad uptrend, favour longs"
-    elif rate >= 0.50:
-        return f"MIXED ({base}) — selective longs, tighter stops"
-    elif rate >= 0.30:
-        return f"WEAKENING ({base}) — more shorts than longs, reduce long size"
-    else:
-        return f"BEAR ({base}) — majority below SMA200, favour shorts"

@@ -16,13 +16,47 @@ try:
     import yfinance as yf
     from universe import load_universe
     from indicators import compute
-    from signals import score, market_regime, quality
+    from signals import score, quality
 except ImportError:
     print("ERROR: Missing dependencies. Run:")
     print("  uv pip install yfinance pandas lxml requests --python .venv/bin/python3")
     sys.exit(1)
 
-MAX_ATR_PCT = 4.0   # skip entries where ATR% exceeds this (vol-cap guardrail)
+MAX_ATR_PCT   = 4.0    # skip entries where ATR% exceeds this (vol-cap guardrail)
+SPY_MA_PERIOD = 200    # SPY trend filter for long-entry regime gate
+VIX_MAX       = 30.0   # block LONG entries when VIX >= this
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Regime helpers — single source of truth for algo-level market filters
+# ─────────────────────────────────────────────────────────────────────────────
+
+def market_regime(long_count: int, total: int) -> str:
+    """Breadth-based regime label from count of tickers above their SMA200."""
+    rate = long_count / total
+    short_count = total - long_count
+    base = f"{long_count}L / {short_count}S of {total}"
+    if rate >= 0.70:
+        return f"STRONG BULL ({base}) — broad uptrend, favour longs"
+    elif rate >= 0.50:
+        return f"MIXED ({base}) — selective longs, tighter stops"
+    elif rate >= 0.30:
+        return f"WEAKENING ({base}) — more shorts than longs, reduce long size"
+    else:
+        return f"BEAR ({base}) — majority below SMA200, favour shorts"
+
+
+def long_regime_ok(spy_close: "pd.Series", spy_ma: "pd.Series",
+                   vix_close: "pd.Series", today_ts: "pd.Timestamp",
+                   vix_max: float = VIX_MAX) -> bool:
+    """Gate for LONG entries: SPY > 200DMA AND VIX < vix_max. Fail-open on missing data."""
+    try:
+        spy_px = float(spy_close.asof(today_ts))
+        spy_m  = float(spy_ma.asof(today_ts))
+        vix_px = float(vix_close.asof(today_ts))
+    except Exception:
+        return True
+    return (spy_px > spy_m) and (vix_px < vix_max)
 
 
 def run(force_refresh: bool = False) -> None:

@@ -19,12 +19,12 @@ import yfinance as yf
 from universe import load_universe
 from indicators import compute
 from signals import score as score_setups, quality, MIN_QUALITY_SCORE
+from sma200_filter import long_regime_ok, SPY_MA_PERIOD, VIX_MAX, MAX_ATR_PCT
 
 START_DATE  = date(2024, 4, 20)
 END_DATE    = date(2026, 4, 20)
 CAPITAL_INIT = 10_000.0
 TIME_STOP_DAYS = 40          # max days to hold if TP/SL not hit
-MAX_ATR_PCT = 4.0            # skip entries where ATR% > this (vol-cap)
 BENCHMARK   = "SPY"          # S&P 500 ETF for buy-and-hold comparison
 
 
@@ -125,58 +125,59 @@ def simulate_trade(ticker: str, direction: str,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Main backtest loop
+# Core simulation engine — single SOT for backtest.py and tune.py
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run():
-    universe = load_universe()
-    tickers  = universe["Ticker"].tolist()
-    dl_tickers = tickers + [BENCHMARK]
+def build_regime_series(raw: pd.DataFrame, benchmark: str = BENCHMARK):
+    """Precompute regime series from raw OHLCV. Returns (spy_close, spy_ma, vix_close)
+    or (None, None, None) if either benchmark or ^VIX is missing."""
+    try:
+        spy_close = raw["Close"][benchmark].ffill()
+        spy_ma    = spy_close.rolling(SPY_MA_PERIOD).mean()
+        vix_close = raw["Close"]["^VIX"].ffill()
+        return spy_close, spy_ma, vix_close
+    except (KeyError, Exception):
+        return None, None, None
 
-    # Download enough history: SMA200 needs 200 trading days (~290 calendar
-    # days) of warm-up. Use 300 to be safe and auto-track START_DATE changes.
-    fetch_start = START_DATE - timedelta(days=300)
-    print(f"Downloading OHLCV from {fetch_start} to {END_DATE}...", flush=True)
-    raw = yf.download(
-        dl_tickers, start=fetch_start.isoformat(), end=END_DATE.isoformat(),
-        interval="1d", auto_adjust=True, progress=False
-    )
-    if raw.empty:
-        print("ERROR: No data."); sys.exit(1)
 
-    # Build sorted list of trading dates in the backtest window
-    all_dates   = sorted(set(raw.index.date))
-    bt_dates    = [d for d in all_dates if START_DATE <= d <= END_DATE]
+def simulate(raw: pd.DataFrame, tickers: list, all_dates: list, bt_dates: list, *,
+             capital_init: float = CAPITAL_INIT,
+             spy_close=None, spy_ma=None, vix_close=None,
+             verbose: bool = False) -> tuple:
+    """Run the scan-pick-enter-exit loop over bt_dates. Returns (capital, trades, regime_blocked_days).
+    If regime series are provided, applies the LONG entry gate from sma200_filter.long_regime_ok."""
+    regime_ready = spy_close is not None and spy_ma is not None and vix_close is not None
 
-    print(f"Backtest: {START_DATE} → {END_DATE}  ({len(bt_dates)} trading days)\n")
-
-    capital    = CAPITAL_INIT
-    trades     = []
-    active     = None     # active trade dict or None
-    scan_from  = START_DATE
+    capital   = capital_init
+    trades    = []
+    active    = None
+    scan_from = bt_dates[0]
+    regime_blocked_days = 0
 
     for today in bt_dates:
-        # ── Check if active trade exits today ────────────────────────────────
-        if active:
-            if today >= active["exit_date"]:
-                pnl_pct = active["pnl_pct"]
-                pnl_usd = capital * (pnl_pct / 100)
-                capital += pnl_usd
-                active["pnl_usd"] = round(pnl_usd, 2)
-                active["capital_after"] = round(capital, 2)
-                trades.append(active)
+        # ── Exit active trade if its exit_date has arrived ───────────────────
+        if active and today >= active["exit_date"]:
+            pnl_pct = active["pnl_pct"]
+            pnl_usd = capital * (pnl_pct / 100)
+            capital += pnl_usd
+            active["pnl_usd"] = round(pnl_usd, 2)
+            active["capital_after"] = round(capital, 2)
+            trades.append(active)
+            if verbose:
                 print(f"  EXIT  {active['ticker']:6s} {active['direction']:5s} | "
                       f"{active['outcome']} @ {active['exit_price']}  "
                       f"P&L: {pnl_pct:+.1f}% (${pnl_usd:+.0f})  "
                       f"Capital: ${capital:,.0f}")
-                active  = None
-                scan_from = today  # scan for next setup tonight
+            active = None
+            scan_from = today
 
-        # ── Scan for next setup if idle ───────────────────────────────────────
+        # ── Scan for next setup if idle ──────────────────────────────────────
         if active is None and today >= scan_from:
-            # Build per-ticker DataFrames using data up to and including today
-            today_ts   = pd.Timestamp(today)
+            today_ts = pd.Timestamp(today)
             candidates = []
+
+            long_allowed = (long_regime_ok(spy_close, spy_ma, vix_close, today_ts)
+                            if regime_ready else True)
 
             for ticker in tickers:
                 try:
@@ -195,72 +196,100 @@ def run():
                 ind = compute(df)
                 if not ind:
                     continue
-
                 if ind.get("atr_pct", 0) > MAX_ATR_PCT:
                     continue
+
                 for s in score_setups(ind):
+                    if s.get("direction", "LONG") == "LONG" and not long_allowed:
+                        continue
                     q = quality({**ind, **s})
-                    candidates.append({
-                        "ticker": ticker,
-                        "quality": q,
-                        **ind,
-                        **s,
-                    })
+                    candidates.append({"ticker": ticker, "quality": q, **ind, **s})
 
             if not candidates:
+                if not long_allowed:
+                    regime_blocked_days += 1
                 continue
 
-            # Pick single best setup
             best = max(candidates, key=lambda x: x["quality"])
-
             if best["quality"] < MIN_QUALITY_SCORE:
-                continue  # No clean setup today — sit on hands
+                continue
 
-            # Enter next trading day
             future = [d for d in all_dates if d > today]
             if not future:
                 continue
             entry_date = future[0]
 
             result = simulate_trade(
-                ticker    = best["ticker"],
-                direction = best["direction"],
-                entry     = best["entry"],
-                sl        = best["sl"],
-                tp        = best["tp"],
-                entry_date= entry_date,
-                raw       = raw,
-                all_dates = all_dates,
+                ticker=best["ticker"], direction=best["direction"],
+                entry=best["entry"], sl=best["sl"], tp=best["tp"],
+                entry_date=entry_date, raw=raw, all_dates=all_dates,
             )
             if not result:
                 continue
 
             active = result
-            print(f"  ENTER {result['ticker']:6s} {result['direction']:5s} | "
-                  f"Setup: {best['setup']:<20s} Quality: {best['quality']}  "
-                  f"Entry: {result['entry']}  SL: {result['sl']}  TP: {result['tp']}  "
-                  f"RSI: {best['rsi']:.0f}  Vol: {best['vol_ratio']:.1f}x  "
-                  f"Scan: {today}  Enter: {entry_date}")
+            if verbose:
+                print(f"  ENTER {result['ticker']:6s} {result['direction']:5s} | "
+                      f"Setup: {best['setup']:<20s} Quality: {best['quality']}  "
+                      f"Entry: {result['entry']}  SL: {result['sl']}  TP: {result['tp']}  "
+                      f"RSI: {best['rsi']:.0f}  Vol: {best['vol_ratio']:.1f}x  "
+                      f"Scan: {today}  Enter: {entry_date}")
 
-    # Close any open trade at end
+    # ── Close any open trade at end of window ────────────────────────────────
     if active:
         last_date = bt_dates[-1]
         try:
             ep = float(raw["Close"][active["ticker"]].loc[pd.Timestamp(last_date)])
         except Exception:
             ep = active["entry"]
-        if active["direction"] == "LONG":
-            pnl_pct = (ep - active["entry"]) / active["entry"] * 100
-        else:
-            pnl_pct = (active["entry"] - ep) / active["entry"] * 100
+        pnl_pct = ((ep - active["entry"]) / active["entry"] * 100
+                   if active["direction"] == "LONG"
+                   else (active["entry"] - ep) / active["entry"] * 100)
         pnl_usd = capital * (pnl_pct / 100)
         capital += pnl_usd
-        active.update({"exit_price": round(ep,2), "outcome": "OPEN@END",
-                        "pnl_pct": round(pnl_pct,2), "pnl_usd": round(pnl_usd,2),
-                        "capital_after": round(capital,2)})
+        active.update({"exit_price": round(ep, 2), "outcome": "OPEN@END",
+                       "pnl_pct": round(pnl_pct, 2), "pnl_usd": round(pnl_usd, 2),
+                       "capital_after": round(capital, 2)})
         trades.append(active)
-        print(f"  OPEN  {active['ticker']:6s} still open — marked at ${ep:.2f}  "
-              f"P&L: {pnl_pct:+.1f}% (${pnl_usd:+.0f})")
+        if verbose:
+            print(f"  OPEN  {active['ticker']:6s} still open — marked at ${ep:.2f}  "
+                  f"P&L: {pnl_pct:+.1f}% (${pnl_usd:+.0f})")
+
+    return capital, trades, regime_blocked_days
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLI entry point
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run():
+    universe = load_universe()
+    tickers  = universe["Ticker"].tolist()
+    dl_tickers = tickers + [BENCHMARK, "^VIX"]
+
+    # SMA200 needs 200 trading days (~290 calendar days) of warm-up.
+    fetch_start = START_DATE - timedelta(days=300)
+    print(f"Downloading OHLCV from {fetch_start} to {END_DATE}...", flush=True)
+    raw = yf.download(
+        dl_tickers, start=fetch_start.isoformat(), end=END_DATE.isoformat(),
+        interval="1d", auto_adjust=True, progress=False,
+    )
+    if raw.empty:
+        print("ERROR: No data."); sys.exit(1)
+
+    all_dates = sorted(set(raw.index.date))
+    bt_dates  = [d for d in all_dates if START_DATE <= d <= END_DATE]
+    print(f"Backtest: {START_DATE} → {END_DATE}  ({len(bt_dates)} trading days)\n")
+
+    spy_close, spy_ma, vix_close = build_regime_series(raw)
+    if spy_close is None:
+        print("WARN: regime data unavailable; gate disabled")
+
+    capital, trades, regime_blocked_days = simulate(
+        raw, tickers, all_dates, bt_dates,
+        spy_close=spy_close, spy_ma=spy_ma, vix_close=vix_close,
+        verbose=True,
+    )
 
     # ── Summary ───────────────────────────────────────────────────────────────
     print(f"\n{'='*66}")
@@ -274,16 +303,13 @@ def run():
     wins   = len(df[df["pnl_pct"] > 0])
     losses = len(df[df["pnl_pct"] <= 0])
     total  = len(df)
-
     strat_ret_pct = (capital / CAPITAL_INIT - 1) * 100
 
-    # Benchmark: SPY buy-and-hold over backtest window
     bench_ret_pct = None
     bench_end_cap = None
     try:
-        spy_close = raw["Close"][BENCHMARK].dropna()
-        spy_window = spy_close[(spy_close.index.date >= bt_dates[0]) &
-                               (spy_close.index.date <= bt_dates[-1])]
+        spy = raw["Close"][BENCHMARK].dropna()
+        spy_window = spy[(spy.index.date >= bt_dates[0]) & (spy.index.date <= bt_dates[-1])]
         if len(spy_window) >= 2:
             bench_ret_pct = (spy_window.iloc[-1] / spy_window.iloc[0] - 1) * 100
             bench_end_cap = CAPITAL_INIT * (1 + bench_ret_pct / 100)
@@ -295,6 +321,8 @@ def run():
     print(f"  Start:       ${CAPITAL_INIT:,.0f}")
     print(f"  End:         ${capital:,.0f}")
     print(f"  Total P&L:   ${capital - CAPITAL_INIT:+,.0f}  ({strat_ret_pct:+.1f}%)")
+    print(f"  Regime gate: blocked LONG scan on {regime_blocked_days} day(s) "
+          f"(SPY>{SPY_MA_PERIOD}DMA & VIX<{VIX_MAX:.0f})")
     if bench_ret_pct is not None:
         alpha = strat_ret_pct - bench_ret_pct
         verdict = "BEAT ✓" if alpha > 0 else "LOST ✗"

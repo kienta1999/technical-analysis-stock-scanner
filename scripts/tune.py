@@ -33,22 +33,16 @@ from datetime import date, timedelta
 
 warnings.filterwarnings("ignore")
 
-import pandas as pd
 import yfinance as yf
 
 from universe import load_universe
-from indicators import compute
 import signals as sg
-from backtest import simulate_trade
+from backtest import simulate, build_regime_series, CAPITAL_INIT, BENCHMARK
 
 IN_START   = date(2024, 4, 20)
 IN_END     = date(2025, 4, 20)
 OUT_START  = date(2025, 4, 20)
 OUT_END    = date(2026, 4, 20)
-
-CAPITAL_INIT = 10_000.0
-MAX_ATR_PCT = 4.0
-BENCHMARK   = "SPY"
 
 CACHE_PATH = Path(__file__).parent.parent / "data" / "raw_ohlcv_2y.pkl"
 CACHE_TTL_DAYS = 7
@@ -85,88 +79,8 @@ def fetch_or_load_data(tickers, start, end, refresh=False):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Backtest simulation
+# Parameter sweep helpers — core simulation lives in backtest.simulate()
 # ─────────────────────────────────────────────────────────────────────────────
-
-def simulate(raw, tickers, all_dates, bt_dates):
-    """Run one backtest pass. Reads sg.MIN_QUALITY_SCORE dynamically."""
-    capital   = CAPITAL_INIT
-    trades    = []
-    active    = None
-    scan_from = bt_dates[0]
-
-    for today in bt_dates:
-        if active and today >= active["exit_date"]:
-            pnl_usd = capital * (active["pnl_pct"] / 100)
-            capital += pnl_usd
-            trades.append(active)
-            active = None
-            scan_from = today
-
-        if active is None and today >= scan_from:
-            today_ts = pd.Timestamp(today)
-            candidates = []
-
-            for ticker in tickers:
-                try:
-                    df = pd.DataFrame({
-                        "Open":   raw["Open"][ticker],
-                        "High":   raw["High"][ticker],
-                        "Low":    raw["Low"][ticker],
-                        "Close":  raw["Close"][ticker],
-                        "Volume": raw["Volume"][ticker],
-                    }).loc[:today_ts].dropna()
-                except (KeyError, TypeError):
-                    continue
-                if len(df) < 200:
-                    continue
-
-                ind = compute(df)
-                if not ind:
-                    continue
-                if ind.get("atr_pct", 0) > MAX_ATR_PCT:
-                    continue
-
-                for s in sg.score(ind):
-                    q = sg.quality({**ind, **s})
-                    candidates.append({"ticker": ticker, "quality": q, **ind, **s})
-
-            if not candidates:
-                continue
-
-            best = max(candidates, key=lambda x: x["quality"])
-            if best["quality"] < sg.MIN_QUALITY_SCORE:
-                continue
-
-            future = [d for d in all_dates if d > today]
-            if not future:
-                continue
-            entry_date = future[0]
-
-            result = simulate_trade(
-                ticker=best["ticker"], direction=best["direction"],
-                entry=best["entry"], sl=best["sl"], tp=best["tp"],
-                entry_date=entry_date, raw=raw, all_dates=all_dates,
-            )
-            if not result:
-                continue
-            active = result
-
-    if active:
-        last_date = bt_dates[-1]
-        try:
-            ep = float(raw["Close"][active["ticker"]].loc[pd.Timestamp(last_date)])
-        except Exception:
-            ep = active["entry"]
-        pnl_pct = ((ep - active["entry"]) / active["entry"] * 100
-                   if active["direction"] == "LONG"
-                   else (active["entry"] - ep) / active["entry"] * 100)
-        capital += capital * (pnl_pct / 100)
-        active["pnl_pct"] = pnl_pct
-        trades.append(active)
-
-    return capital, trades
-
 
 def apply_overrides(overrides: dict):
     for k, v in overrides.items():
@@ -185,8 +99,12 @@ def spy_return(raw, bt_dates):
     return (spy_w.iloc[-1] / spy_w.iloc[0] - 1) * 100
 
 
-def run_one(raw, tickers, all_dates, bt_dates, bench_ret):
-    end_cap, trades = simulate(raw, tickers, all_dates, bt_dates)
+def run_one(raw, tickers, all_dates, bt_dates, bench_ret, regime):
+    spy_close, spy_ma, vix_close = regime
+    end_cap, trades, _ = simulate(
+        raw, tickers, all_dates, bt_dates,
+        spy_close=spy_close, spy_ma=spy_ma, vix_close=vix_close,
+    )
     n = len(trades)
     wins = sum(1 for t in trades if t["pnl_pct"] > 0)
     ret = (end_cap / CAPITAL_INIT - 1) * 100
@@ -240,7 +158,7 @@ def main():
     # SMA200 needs ~290 calendar days of warm-up before the earliest scan date
     fetch_start = IN_START - timedelta(days=300)
     raw = fetch_or_load_data(
-        tickers + [BENCHMARK],
+        tickers + [BENCHMARK, "^VIX"],
         start=fetch_start.isoformat(), end=OUT_END.isoformat(),
         refresh=refresh,
     )
@@ -252,6 +170,12 @@ def main():
     out_bench = spy_return(raw, out_dates)
     print(f"\nIn-sample  ({IN_START} → {IN_END}):    {len(in_dates)} days, SPY {in_bench:+.1f}%")
     print(f"Out-sample ({OUT_START} → {OUT_END}):  {len(out_dates)} days, SPY {out_bench:+.1f}%")
+
+    # Regime series — shared across all variations; pass-through to simulate()
+    regime = build_regime_series(raw)
+    if regime[0] is None:
+        print("WARN: regime data unavailable in cached OHLCV — run with --refresh "
+              "to re-download including ^VIX. Gate disabled for this sweep.")
 
     baseline = snapshot_baseline()
     variations = build_variations()
@@ -265,8 +189,8 @@ def main():
     for i, (name, overrides) in enumerate(variations):
         apply_overrides(baseline)
         apply_overrides(overrides)
-        in_res  = run_one(raw, tickers, all_dates, in_dates, in_bench)
-        out_res = run_one(raw, tickers, all_dates, out_dates, out_bench)
+        in_res  = run_one(raw, tickers, all_dates, in_dates, in_bench, regime)
+        out_res = run_one(raw, tickers, all_dates, out_dates, out_bench, regime)
         results.append({"name": name, "overrides": overrides,
                         "in": in_res, "out": out_res})
         print(".", end="", flush=True)

@@ -5,11 +5,13 @@ Long-only, rules-based swing-trading strategy for the top 100 S&P 500 stocks by 
 Backtested 2024-04-20 → 2026-04-20 (2 years):
 
 ```
-$10,000 → $22,556   (+125.6%)
+$10,000 → $27,242   (+172.4%)
 SPY B&H: +45.6%
-Alpha:   +80.0 pp    [BEAT ✓]
-44 trades, 21W / 23L, 48% win rate
+Alpha:   +126.9 pp   [BEAT ✓]
+42 trades, 22W / 20L, 52% win rate
 ```
+
+Also survives regime change — 2020 COVID crash window (2020-02-19 → 2020-12-31): **+42.4% vs SPY +12.0% (+30.4pp alpha, 60% win rate)** thanks to the market-wide regime gate.
 
 ---
 
@@ -22,9 +24,15 @@ Alpha:   +80.0 pp    [BEAT ✓]
 
 ### 2. Direction rule (the one that makes everything work)
 
+**Per-ticker filter:**
 - **price > SMA200 → consider LONG setups only.**
 - **price < SMA200 → no trade.** Never short, never fight the dominant trend.
-- Do not "all in on the cross" in a bear regime. Market breadth <30% = prefer cash over forced longs.
+
+**Market-wide regime gate (added 2026-04-23):** even for tickers above their own SMA200, block LONG entries when either:
+- **SPY close < SPY 200-day MA** (broad market not in uptrend), OR
+- **VIX ≥ 30** (crash regime — don't catch falling knives)
+
+Lives in `scripts/sma200_filter.py` as `long_regime_ok()` — single SOT, applied by the shared `simulate()` engine used by both the backtest and tuner. Swung COVID-2020 alpha from **-24.9pp → +30.4pp** (see "Regime gate" section below). Do not "all in on the cross" in a bear regime — breadth <30% = prefer cash over forced longs.
 
 ### 3. The four long setups
 
