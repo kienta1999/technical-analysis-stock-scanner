@@ -1,4 +1,4 @@
-# ai-stock-investment
+# technical-analysis-stock-scanner
 
 Long-only, rules-based swing-trading strategy for the top 100 S&P 500 stocks by market cap. Designed to be run through Claude Code — the `/technical-analysis` slash command executes the scanner and interprets the output.
 
