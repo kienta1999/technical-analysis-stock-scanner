@@ -453,6 +453,49 @@ Round 4 also reinforces a pattern from earlier rounds: when an "obviously good" 
 
 ---
 
+## Tuning session round 5 (2026-04-25) — ADX trend gate on L1/L4 — REJECTED
+
+### Question
+
+The 2015 chop window (-14.2pp alpha, 14% win rate) suggested L1 (Ride Uptrend) and L4 (Pre-Golden Cross) were firing into trendless noise. Hypothesis: requiring ADX(14) ≥ 20 on those two setups would filter chop entries while leaving trending markets alone. ADX is the textbook trend-strength gauge and didn't double-count anything else in the rule set.
+
+### What we did
+
+Added Wilder ADX(14) to `indicators.py` and `L1_MIN_ADX` / `L4_MIN_ADX = 20` gates to L1 and L4 in `signals.py`. L2 (MACD Cross) and L3 (VWAP Support) intentionally left alone — they're momentum and mean-reversion setups where a trend isn't required.
+
+Ran the bull window first as a sanity check, then a 25-variation `L1_MIN_ADX × L4_MIN_ADX` sweep in `tune.py` over `{0, 12, 15, 18, 20}` × `{0, 12, 15, 18, 20}`.
+
+### Result — broke the bull window, didn't fix 2015
+
+**2024-2026 bull (continuous backtest):** alpha collapsed from **+126.9pp to +12.2pp**. Trades dropped 42 → 36, win rate 52% → 44%. ADX = 20 was filtering out exactly the L1 pullback-to-SMA50 setups that drove the bull.
+
+**`tune.py` IS/OOS sweep:**
+
+| Variation                | IS alpha | OOS alpha | Sum    |
+| ------------------------ | -------- | --------- | ------ |
+| `L1_ADX=0,L4_ADX=*`      | +53.8pp  | +33.2pp   | +87.0pp |
+| `L1_ADX=20` (Baseline)   | -12.5pp  | +24.5pp   | +12.0pp |
+
+`L1_ADX = 0` (no gate) won by +75pp on the IS half alone. Every positive L1 threshold (12, 15, 18, 20) hurt. `L4_ADX` had zero effect across all values — L4 didn't trigger in either window, so the dim was wasted.
+
+The decisive evidence: the 2015 backtest at `L1_ADX = 20` still lost. ADX did not fix chop. It just bled bull-market alpha.
+
+### Why the hypothesis failed
+
+ADX doesn't measure "is there a trend right now." It measures "has there been directional movement over the last ~14 bars." In a textbook chop year (2015), individual tickers still throw 14-bar runs in either direction — enough to push ADX above 20 — but those runs don't sustain. Conversely, in a healthy bull (2024-2026), L1 fires on **pullbacks** to SMA50, which by construction reduce short-term ADX even as the multi-month trend is intact. The gate punishes exactly the entry shape we want.
+
+A market-wide ADX (e.g. SPY ADX < 20 = chop, sit out) might still have legs — it's a regime-level filter, not a per-ticker one — but that's a different experiment. This per-ticker version is dead.
+
+### Verdict
+
+**Reverted.** The L1/L4 gates and the `L1_MIN_ADX` / `L4_MIN_ADX` constants are removed from `signals.py`. The ADX(14) computation in `indicators.py` is kept — it's cheap and may be useful for the market-wide variant or for quality scoring later. `tune.py` GRID restored to the MAX_SLOTS sweep.
+
+### Methodological note
+
+Round 5 reinforces the same lesson as round 4 (multi-slot): when an "obviously good" filter underperforms, trust the deterministic backtest. The intuition that ADX = "trend gauge" mapped poorly onto the actual setup mechanics. Always test the **continuous bull-window backtest first** before doing the full IS/OOS sweep — would have caught this in 30 seconds instead of 30 minutes.
+
+---
+
 ## Next steps
 
 https://claude.ai/chat/34ec3fcd-9cae-4713-bca8-1dea70df4b89
@@ -471,7 +514,7 @@ Do these in order. Each one is a single, self-contained change. After each, re-r
 
 **5. Trail the runner after breakeven.** Same code path as #4. Once BE has triggered, instead of holding SL=entry, set SL = `max(entry, highest_high_since_entry − 3×ATR)`. Recalculate each day. Captures big winners that currently cap at 4×ATR TP.
 
-**6. ADX > 20 on L1 and L4.** L1 (Ride Uptrend) and L4 (Pre-Golden Cross) assume a trend. Require ADX(14) > 20 to confirm one exists. Add ADX to `indicators.py`, then add `ind["adx"] > 20` to the L1 and L4 conditions in `signals.py`. Don't apply to L2 or L3.
+**6. ~~ADX > 20 on L1 and L4.~~** ❌ **Tested + rejected 2026-04-25.** Cut bull alpha from +126.9pp to +12.2pp and didn't fix 2015 chop. See "Tuning session round 5" above. Per-ticker ADX is the wrong lever — punishes pullback entries we want. A market-wide ADX gate (SPY ADX < threshold = sit out) is a different experiment and may still have legs.
 
 ### Don't bother — already settled
 

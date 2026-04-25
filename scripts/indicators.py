@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compute all technical indicators for a single ticker's OHLCV DataFrame."""
 
+import numpy as np
 import pandas as pd
 
 
@@ -58,6 +59,18 @@ def compute(df: pd.DataFrame) -> dict:
     tr = pd.concat([h - l, (h - c.shift()).abs(), (l - c.shift()).abs()], axis=1).max(axis=1)
     atr = tr.ewm(com=13, adjust=False).mean()
 
+    # ── ADX (14) — Wilder directional movement, trend-strength gauge ─────────
+    up_move = h.diff()
+    down_move = -l.diff()
+    plus_dm = ((up_move > down_move) & (up_move > 0)) * up_move
+    minus_dm = ((down_move > up_move) & (down_move > 0)) * down_move
+    tr_smooth = tr.ewm(com=13, adjust=False).mean()
+    plus_di = 100 * plus_dm.ewm(com=13, adjust=False).mean() / tr_smooth
+    minus_di = 100 * minus_dm.ewm(com=13, adjust=False).mean() / tr_smooth
+    di_sum = (plus_di + minus_di).replace(0, np.nan)
+    dx = (100 * (plus_di - minus_di).abs() / di_sum).fillna(0.0)
+    adx = dx.ewm(com=13, adjust=False).mean()
+
     # ── MACD (12, 26, 9) ─────────────────────────────────────────────────────
     ema12 = c.ewm(span=12, adjust=False).mean()
     ema26 = c.ewm(span=26, adjust=False).mean()
@@ -103,6 +116,7 @@ def compute(df: pd.DataFrame) -> dict:
         "rsi":          round(float(rsi.iloc[-1]), 1),
         "atr":          round(float(atr.iloc[-1]), 2),
         "atr_pct":      round(float(atr.iloc[-1] / c.iloc[-1]) * 100, 2),
+        "adx":          round(float(adx.iloc[-1]), 1) if pd.notna(adx.iloc[-1]) else 0.0,
         "macd":         round(float(macd_line.iloc[-1]), 4),
         "macd_signal":  round(float(macd_signal.iloc[-1]), 4),
         "macd_hist":    round(float(macd_hist.iloc[-1]), 4),
