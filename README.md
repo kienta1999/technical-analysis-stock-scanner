@@ -160,24 +160,61 @@ uv pip install yfinance pandas lxml requests --python .venv/bin/python3 -q
 
 ---
 
-## Code layout
+## Code layout — what each file does
 
 ```
 scripts/
-  universe.py       # Fetches + caches top 100 S&P 500 by market cap
-  indicators.py     # Computes SMA/BB/RSI/ATR/MACD/VWAP per ticker
-  signals.py        # SOT for all trade rules: L1-L4 setups, quality() scorer,
-                    #   long_regime_ok(), market_regime(), MAX_ATR_PCT,
-                    #   SPY_MA_PERIOD, VIX_MAX, MIN_QUALITY_SCORE, Q_* weights
-  sma200_filter.py  # Live scanner CLI — prints breadth + triggered setups
-  backtest.py       # simulate() engine (1 trade at a time, trailing-BE stop,
-                    #   SPY regime gate) + CLI entry point + benchmark summary
-  tune.py           # Parameter grid search — imports simulate() from backtest
+  universe.py       — top-100 S&P 500 universe loader
+  indicators.py     — per-ticker indicator math
+  signals.py        — SOT for every algo-level rule and tunable
+  sma200_filter.py  — live EOD scanner (CLI)
+  backtest.py       — simulate() engine + 2-year backtest CLI
+  tune.py           — parameter grid search with IS/OOS split
+  run_oos.py        — six-window historical regime sweep
+data/               — cached OHLCV pickles + universe CSV (gitignored)
 .claude/
-  commands/
-    technical-analysis.md   # Slash command for Claude Code
-  settings.json             # Project default model: claude-opus-4-7
+  commands/         — slash commands for Claude Code
+  settings.json     — project default model
 ```
+
+### `scripts/universe.py`
+Fetches the **top 100 S&P 500 companies by market cap** from Wikipedia + yfinance, caches to `data/universe_top100.csv`, refreshes if older than 7 days. Every other script reads its ticker list from `load_universe()`.
+
+### `scripts/indicators.py`
+Pure numerical: given a ticker's daily OHLCV frame, computes SMA-50/200, Bollinger Bands, RSI(14), ATR(14), MACD(12/26/9), volume ratio, rolling VWAP, and derived booleans (`price_above_sma200`, `macd_crossed_up`, `near_sma50_recently`, etc.). Returns a flat dict consumed by both the scanner and the backtest. No I/O, no rule logic — just math.
+
+### `scripts/signals.py`
+**The single source of truth for every trade rule.** All other scripts import their rules from here. Three things live here:
+1. **Tunable constants** — `MAX_ATR_PCT`, `SPY_MA_PERIOD`, `VIX_MAX`, `MAX_SLOTS`, `MIN_QUALITY_SCORE`, `RS_*` (relative-strength filter knobs), `L1_*` … `L4_*` (per-setup thresholds), `Q_*` (quality-score weights).
+2. **Setup detection** — `score(ind)` returns the list of L1/L2/L3/L4 setups triggered by a ticker's indicator dict on a given day. `quality(row)` scores any triggered setup 0–100.
+3. **Algo-level gates** — `long_regime_ok()` (SPY>200DMA AND VIX<30), `rs_eligible()` (top 40% of universe by both 3M and 6M return), `market_regime()` (breadth label), `build_regime_series()` (precomputes SPY/VIX series for the backtest).
+
+If you want to change the strategy, you change a constant or a function here. Nothing else.
+
+### `scripts/sma200_filter.py`
+**Live EOD scanner.** Run it after market close to see what the rulebook is saying right now. Downloads 1 year of OHLCV for the universe + SPY + ^VIX, computes indicators, prints:
+- Market breadth (how many tickers above SMA200)
+- Regime gate status (open / blocked + the SPY/VIX numbers driving it)
+- RS filter status (how many tickers passed the top-40% cut)
+- Long universe and short universe tables
+- Triggered setups, sorted by quality, with full per-setup detail
+
+`python3 scripts/sma200_filter.py` — no args. `--refresh` re-pulls the universe from Wikipedia.
+
+### `scripts/backtest.py`
+**The reference simulator and CLI for a single date range.** Two pieces:
+1. `simulate(raw, tickers, all_dates, bt_dates, ...)` — the core engine. Loops day by day: scan EOD, enter next-day open, monitor TP/SL/time-stop with daily highs/lows, track trailing-to-breakeven, score candidates, pick highest-quality, fill free slots. Used by `tune.py` and `run_oos.py` too.
+2. CLI `run()` — defaults to 2024-04-20 → 2026-04-20, downloads OHLCV fresh, runs `simulate()`, prints trade log + benchmark comparison + alpha.
+
+Editing `START_DATE`/`END_DATE` at the top runs the same engine on a different window. For multi-window evaluation use `run_oos.py` instead.
+
+### `scripts/tune.py`
+**Parameter grid search.** Defines a `GRID` dict (currently sweeping `MAX_SLOTS`), generates all variations, runs each through `simulate()` on both the in-sample window (2024-04-20 → 2025-04-20) and a held-out year (2025-04-20 → 2026-04-20), reports any variation that beats baseline by ≥10pp on **both** windows. OHLCV is cached to `data/raw_ohlcv_2y.pkl` (7-day TTL). The lesson from previous rounds: tune.py is reliable for **direction** of an effect but unreliable for predicting continuous-backtest **magnitude** — always re-validate any winner with `backtest.py`.
+
+### `scripts/run_oos.py`
+**Six-window OOS regime sweep — the verdict tool for any algo-level change.** Runs `simulate()` against each of: 2024-26 bull, 2015 chop, 2018 vol shock, 2020 COVID, 2022-24 bear+recov, 2008 GFC. Per-window OHLCV is cached to `data/raw_oos_<start>_<end>.pkl` (7-day TTL). Prints a Δ-vs-baseline table where the baselines are the alphas of the **currently shipped** config, and a ship rule (2015 alpha > 0 AND no window drops more than 10pp). Update the baseline column after any accepted change so future runs measure Δ vs the latest state of the art, not pre-change history.
+
+This script replaced the previous workflow of editing `backtest.py`'s date range five times by hand. Use it before declaring any strategy change a win.
 
 ---
 
