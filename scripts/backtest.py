@@ -19,11 +19,9 @@ from datetime import date, timedelta
 import pandas as pd
 import yfinance as yf
 from universe import load_universe
-from indicators import compute, ticker_frame
 import signals as sg
-from signals import (score as score_setups, quality, MIN_QUALITY_SCORE,
-                     long_regime_ok, build_regime_series, rs_eligible,
-                     MAX_ATR_PCT, SPY_MA_PERIOD, VIX_MAX, BENCHMARK)
+from signals import build_regime_series, SPY_MA_PERIOD, VIX_MAX, BENCHMARK
+from sma200_filter import scan
 
 START_DATE  = date(2024, 4, 20)
 END_DATE    = date(2026, 4, 20)
@@ -142,7 +140,6 @@ def simulate(raw: pd.DataFrame, tickers: list, all_dates: list, bt_dates: list, 
     applies the LONG entry gate from signals.long_regime_ok.
 
     max_slots=None reads sg.MAX_SLOTS at call time (so tune.py overrides apply)."""
-    regime_ready = spy_close is not None and spy_ma is not None and vix_close is not None
     n_slots = max_slots if max_slots is not None else sg.MAX_SLOTS
 
     # Each slot: independent sub-account. trade["capital_after"] is slot capital.
@@ -178,43 +175,21 @@ def simulate(raw: pd.DataFrame, tickers: list, all_dates: list, bt_dates: list, 
 
         # ── 2. Scan once, gather all candidates ──────────────────────────────
         today_ts = pd.Timestamp(today)
-        long_allowed = (long_regime_ok(spy_close, spy_ma, vix_close, today_ts)
-                        if regime_ready else True)
+        result = scan(raw=raw, as_of=today_ts, tickers=tickers,
+                      spy_close=spy_close, spy_ma=spy_ma, vix_close=vix_close,
+                      verbose=False)
+        if result is None:
+            continue
 
-        rs_set = rs_eligible(raw, tickers, today_ts) if sg.RS_FILTER_ENABLED else None
-
-        candidates = []
-        for ticker in tickers:
-            if rs_set is not None and ticker not in rs_set:
-                continue
-            df = ticker_frame(raw, ticker, up_to=today_ts)
-            if df is None or len(df) < 200:
-                continue
-            ind = compute(df)
-            if not ind:
-                continue
-            if ind.get("atr_pct", 0) > MAX_ATR_PCT:
-                continue
-            for s in score_setups(ind):
-                if s.get("direction", "LONG") == "LONG" and not long_allowed:
-                    continue
-                q = quality({**ind, **s})
-                candidates.append({"ticker": ticker, "quality": q, **ind, **s})
-
-        if not candidates:
-            if not long_allowed:
-                regime_blocked_days += 1
+        if not result["gate_open"]:
+            regime_blocked_days += 1
             continue
 
         # ── 3. Pick top-N by quality, dedup tickers (incl. already held) ─────
         held = held_tickers()
-        candidates.sort(key=lambda x: x["quality"], reverse=True)
-
         picks = []
         seen = set(held)
-        for c in candidates:
-            if c["quality"] < MIN_QUALITY_SCORE:
-                break  # sorted desc — once below floor, all rest are too
+        for c in result["picks"]:  # already sorted by quality desc, ≥MIN_QUALITY_SCORE
             if c["ticker"] in seen:
                 continue
             seen.add(c["ticker"])

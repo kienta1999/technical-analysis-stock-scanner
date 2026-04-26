@@ -35,51 +35,67 @@ except ImportError:
     sys.exit(1)
 
 
-def scan(force_refresh: bool = False, verbose: bool = True) -> dict | None:
+def scan(raw=None, as_of=None, tickers: list = None,
+         spy_close=None, spy_ma=None, vix_close=None,
+         force_refresh: bool = False, verbose: bool = True,
+         carry_indicators: bool = False) -> dict | None:
     """
-    Run the EOD scan and return a structured result dict.
+    Single source of truth for the per-day scan. Used by:
+      - the live CLI (run() below) — no args; downloads fresh data
+      - backtest.simulate() — passes raw, as_of, precomputed regime series
 
-    Returns None on data failure. Otherwise returns:
-      {
-        "scan_date":        ISO date of the last bar in the OHLCV download
-        "gate_open":        bool — LONG entries allowed today?
-        "gate_detail":      str — human-readable gate status
-        "spy_price":        float | None
-        "spy_ma":           float | None  (SPY 200DMA)
-        "vix":              float | None
-        "breadth_long":     int — # tickers above SMA200
-        "breadth_short":    int — # tickers below SMA200
-        "breadth_total":    int
-        "rs_eligible":      set[str] | None — tickers passing RS filter (None if disabled)
-        "long_rows":        list[dict] — long-universe table rows
-        "short_rows":       list[dict] — short-universe table rows
-        "triggered":        list[dict] — every triggered setup (pre-gate)
-        "picks":             list[dict] — actionable LONG picks, sorted by quality desc,
-                                          regime-allowed and ≥ MIN_QUALITY_SCORE
-                                          (each: ticker, setup, direction, quality,
-                                           entry, sl, tp, rsi, vol_ratio, atr_pct, rr)
-        "raw":              pd.DataFrame — raw OHLCV (universe + SPY + ^VIX)
-        "tickers":          list[str] — universe tickers
-      }
+    Args:
+      raw:                  pd.DataFrame from yf.download (multi-ticker, columns =
+                            (field, ticker)). If None, downloads 1y of the
+                            top-100 universe + SPY + ^VIX.
+      as_of:                pd.Timestamp to scan as-of. If None, uses raw.index[-1].
+                            Indicators are computed using bars up to this timestamp.
+      tickers:              universe tickers. Required if `raw` is provided; loaded
+                            from cache otherwise.
+      spy_close,
+      spy_ma,
+      vix_close:            precomputed regime series (build_regime_series). If
+                            None, computed from raw — caller can pass them once
+                            outside a date loop to avoid recomputing.
+      carry_indicators:     if True, each pick dict carries the full `ind` (kept
+                            internal — backtest needs no extra fields right now).
+
+    Returns None on data failure. Otherwise:
+      {scan_date, gate_open, gate_detail, spy_price, spy_ma, vix,
+       breadth_long, breadth_short, breadth_total, rs_eligible,
+       long_rows, short_rows, triggered, picks, raw, tickers}
     """
-    universe = load_universe(force_refresh=force_refresh)
-    tickers = universe["Ticker"].tolist()
+    if raw is None:
+        universe = load_universe(force_refresh=force_refresh)
+        tickers = universe["Ticker"].tolist()
+        dl_tickers = tickers + [BENCHMARK, "^VIX"]
+        if verbose:
+            print(f"Downloading 1-year OHLCV for {len(dl_tickers)} tickers "
+                  f"(universe + {BENCHMARK} + ^VIX)...", flush=True)
+        raw = yf.download(dl_tickers, period="1y", interval="1d",
+                          auto_adjust=True, progress=False)
+        if raw.empty:
+            return None
+    elif tickers is None:
+        # Caller passed raw without tickers — derive from the column index
+        try:
+            tickers = [t for t in raw["Close"].columns
+                       if t not in (BENCHMARK, "^VIX")]
+        except Exception:
+            return None
 
-    dl_tickers = tickers + [BENCHMARK, "^VIX"]
-    if verbose:
-        print(f"Downloading 1-year OHLCV for {len(dl_tickers)} tickers "
-              f"(universe + {BENCHMARK} + ^VIX)...", flush=True)
-    raw = yf.download(dl_tickers, period="1y", interval="1d",
-                      auto_adjust=True, progress=False)
-    if raw.empty:
-        return None
+    if as_of is None:
+        as_of = raw.index[-1]
+
+    if spy_close is None or spy_ma is None or vix_close is None:
+        spy_close, spy_ma, vix_close = build_regime_series(raw)
 
     long_rows, short_rows, triggered = [], [], []
-    rs_set = (rs_eligible(raw, tickers, raw.index[-1])
+    rs_set = (rs_eligible(raw, tickers, as_of)
               if sg.RS_FILTER_ENABLED else None)
 
     for ticker in tickers:
-        df = ticker_frame(raw, ticker)
+        df = ticker_frame(raw, ticker, up_to=as_of)
         if df is None or len(df) < 200:
             continue
 
@@ -117,17 +133,15 @@ def scan(force_refresh: bool = False, verbose: bool = True) -> dict | None:
             row["quality"] = quality(row)
             triggered.append(row)
 
-    spy_close, spy_ma, vix_close = build_regime_series(raw)
-    today_ts = raw.index[-1]
     gate_open = True
     spy_px = spy_m = vix_px = None
     gate_detail = ""
     if spy_close is not None:
-        gate_open = long_regime_ok(spy_close, spy_ma, vix_close, today_ts)
+        gate_open = long_regime_ok(spy_close, spy_ma, vix_close, as_of)
         try:
-            spy_px = float(spy_close.asof(today_ts))
-            spy_m  = float(spy_ma.asof(today_ts))
-            vix_px = float(vix_close.asof(today_ts))
+            spy_px = float(spy_close.asof(as_of))
+            spy_m  = float(spy_ma.asof(as_of))
+            vix_px = float(vix_close.asof(as_of))
             gate_detail = (f"SPY {spy_px:.2f} vs {SPY_MA_PERIOD}DMA {spy_m:.2f} | "
                            f"VIX {vix_px:.1f} (limit {VIX_MAX:.0f})")
         except Exception:
@@ -142,7 +156,7 @@ def scan(force_refresh: bool = False, verbose: bool = True) -> dict | None:
                 continue
             if t["quality"] < MIN_QUALITY_SCORE:
                 continue
-            picks.append({
+            pick = {
                 "ticker":     t["Ticker"],
                 "setup":      t["setup"],
                 "direction":  t["direction"],
@@ -154,10 +168,13 @@ def scan(force_refresh: bool = False, verbose: bool = True) -> dict | None:
                 "vol_ratio":  round(t["vol_ratio"], 2),
                 "atr_pct":    round(t["atr_pct"], 2),
                 "rr":         t["rr"],
-            })
+            }
+            if carry_indicators:
+                pick["_indicators"] = t
+            picks.append(pick)
 
     return {
-        "scan_date":        raw.index[-1].date().isoformat(),
+        "scan_date":        pd.Timestamp(as_of).date().isoformat(),
         "gate_open":        gate_open,
         "gate_detail":      gate_detail,
         "spy_price":        spy_px,
