@@ -8,6 +8,11 @@ Technical analysis scanner — long-only strategy.
                     backtest.simulate).
   Skips entries where ATR% > MAX_ATR_PCT (extreme-volatility guardrail).
   Scans all top-100 S&P 500 stocks.
+
+Two entry points:
+  - scan(): returns a structured dict with picks, market metadata, and the raw
+    OHLCV frame. Used by paper_trade.py.
+  - run():  calls scan() and prints the human-readable report. Used by the CLI.
 """
 
 import sys
@@ -22,6 +27,7 @@ try:
     import signals as sg
     from signals import (score, quality, market_regime, long_regime_ok,
                          build_regime_series, rs_eligible,
+                         MIN_QUALITY_SCORE,
                          MAX_ATR_PCT, VIX_MAX, SPY_MA_PERIOD, BENCHMARK)
 except ImportError:
     print("ERROR: Missing dependencies. Run:")
@@ -29,24 +35,46 @@ except ImportError:
     sys.exit(1)
 
 
-def run(force_refresh: bool = False) -> None:
-    # ── Universe ──────────────────────────────────────────────────────────────
+def scan(force_refresh: bool = False, verbose: bool = True) -> dict | None:
+    """
+    Run the EOD scan and return a structured result dict.
+
+    Returns None on data failure. Otherwise returns:
+      {
+        "scan_date":        ISO date of the last bar in the OHLCV download
+        "gate_open":        bool — LONG entries allowed today?
+        "gate_detail":      str — human-readable gate status
+        "spy_price":        float | None
+        "spy_ma":           float | None  (SPY 200DMA)
+        "vix":              float | None
+        "breadth_long":     int — # tickers above SMA200
+        "breadth_short":    int — # tickers below SMA200
+        "breadth_total":    int
+        "rs_eligible":      set[str] | None — tickers passing RS filter (None if disabled)
+        "long_rows":        list[dict] — long-universe table rows
+        "short_rows":       list[dict] — short-universe table rows
+        "triggered":        list[dict] — every triggered setup (pre-gate)
+        "picks":             list[dict] — actionable LONG picks, sorted by quality desc,
+                                          regime-allowed and ≥ MIN_QUALITY_SCORE
+                                          (each: ticker, setup, direction, quality,
+                                           entry, sl, tp, rsi, vol_ratio, atr_pct, rr)
+        "raw":              pd.DataFrame — raw OHLCV (universe + SPY + ^VIX)
+        "tickers":          list[str] — universe tickers
+      }
+    """
     universe = load_universe(force_refresh=force_refresh)
     tickers = universe["Ticker"].tolist()
 
-    # ── Download full OHLCV (1 year daily) + regime data (SPY, ^VIX) ─────────
     dl_tickers = tickers + [BENCHMARK, "^VIX"]
-    print(f"Downloading 1-year OHLCV for {len(dl_tickers)} tickers "
-          f"(universe + {BENCHMARK} + ^VIX)...", flush=True)
+    if verbose:
+        print(f"Downloading 1-year OHLCV for {len(dl_tickers)} tickers "
+              f"(universe + {BENCHMARK} + ^VIX)...", flush=True)
     raw = yf.download(dl_tickers, period="1y", interval="1d",
                       auto_adjust=True, progress=False)
     if raw.empty:
-        print("ERROR: No data returned.")
-        sys.exit(1)
+        return None
 
-    # ── Process each ticker ───────────────────────────────────────────────────
     long_rows, short_rows, triggered = [], [], []
-
     rs_set = (rs_eligible(raw, tickers, raw.index[-1])
               if sg.RS_FILTER_ENABLED else None)
 
@@ -89,20 +117,12 @@ def run(force_refresh: bool = False) -> None:
             row["quality"] = quality(row)
             triggered.append(row)
 
-    long_count  = len(long_rows)
-    short_count = len(short_rows)
-    total       = long_count + short_count
-
-    # ── Market breadth + regime gate ─────────────────────────────────────────
-    regime = market_regime(long_count, total)
-    print(f"\n{'='*66}")
-    print(f"  MARKET BREADTH | {regime}")
-
     spy_close, spy_ma, vix_close = build_regime_series(raw)
+    today_ts = raw.index[-1]
     gate_open = True
+    spy_px = spy_m = vix_px = None
     gate_detail = ""
     if spy_close is not None:
-        today_ts = raw.index[-1]
         gate_open = long_regime_ok(spy_close, spy_ma, vix_close, today_ts)
         try:
             spy_px = float(spy_close.asof(today_ts))
@@ -115,27 +135,85 @@ def run(force_refresh: bool = False) -> None:
     else:
         gate_detail = "SPY or ^VIX missing — gate fail-open"
 
+    picks = []
+    if gate_open:
+        for t in sorted(triggered, key=lambda x: x["quality"], reverse=True):
+            if t.get("direction", "LONG") != "LONG":
+                continue
+            if t["quality"] < MIN_QUALITY_SCORE:
+                continue
+            picks.append({
+                "ticker":     t["Ticker"],
+                "setup":      t["setup"],
+                "direction":  t["direction"],
+                "quality":    t["quality"],
+                "entry":      t["entry"],
+                "sl":         t["sl"],
+                "tp":         t["tp"],
+                "rsi":        round(t["rsi"], 1),
+                "vol_ratio":  round(t["vol_ratio"], 2),
+                "atr_pct":    round(t["atr_pct"], 2),
+                "rr":         t["rr"],
+            })
+
+    return {
+        "scan_date":        raw.index[-1].date().isoformat(),
+        "gate_open":        gate_open,
+        "gate_detail":      gate_detail,
+        "spy_price":        spy_px,
+        "spy_ma":           spy_m,
+        "vix":              vix_px,
+        "breadth_long":     len(long_rows),
+        "breadth_short":    len(short_rows),
+        "breadth_total":    len(long_rows) + len(short_rows),
+        "rs_eligible":      rs_set,
+        "long_rows":        long_rows,
+        "short_rows":       short_rows,
+        "triggered":        triggered,
+        "picks":            picks,
+        "raw":              raw,
+        "tickers":          tickers,
+    }
+
+
+def run(force_refresh: bool = False) -> dict | None:
+    """CLI: run scan and print the human-readable report. Returns the scan dict."""
+    result = scan(force_refresh=force_refresh, verbose=True)
+    if result is None:
+        print("ERROR: No data returned.")
+        sys.exit(1)
+
+    long_rows  = result["long_rows"]
+    short_rows = result["short_rows"]
+    triggered  = result["triggered"]
+    rs_set     = result["rs_eligible"]
+    gate_open  = result["gate_open"]
+
+    long_count  = len(long_rows)
+    short_count = len(short_rows)
+    total       = long_count + short_count
+
+    regime = market_regime(long_count, total)
+    print(f"\n{'='*66}")
+    print(f"  MARKET BREADTH | {regime}")
     status = "OPEN — LONG entries allowed" if gate_open else "BLOCKED — LONG entries suppressed"
     print(f"  REGIME GATE    | {status}")
-    print(f"                 | {gate_detail}")
+    print(f"                 | {result['gate_detail']}")
     if rs_set is not None:
         print(f"  RS FILTER      | top {int(sg.RS_TOP_PCT*100)}% by 3M ∩ 6M return — "
-              f"{len(rs_set)} eligible of {len(tickers)}")
+              f"{len(rs_set)} eligible of {len(result['tickers'])}")
     print(f"{'='*66}")
 
-    # ── Long universe (price > SMA200) ────────────────────────────────────────
     if long_rows:
         ldf = pd.DataFrame(long_rows).sort_values("% vs SMA200", ascending=False).reset_index(drop=True)
         print(f"\n── LONG UNIVERSE  ({long_count} stocks — price > SMA200) ──")
         print(ldf.to_string(index=False))
 
-    # ── Short universe (price < SMA200) ───────────────────────────────────────
     if short_rows:
         sdf = pd.DataFrame(short_rows).sort_values("% vs SMA200", ascending=True).reset_index(drop=True)
         print(f"\n── SHORT UNIVERSE  ({short_count} stocks — price < SMA200) ──")
         print(sdf.to_string(index=False))
 
-    # ── Triggered setups ─────────────────────────────────────────────────────
     if not gate_open:
         n = len(triggered)
         if n:
@@ -146,11 +224,11 @@ def run(force_refresh: bool = False) -> None:
             print("Do not enter. Wait for SPY > 200DMA AND VIX < 30.")
         else:
             print("\nREGIME GATE CLOSED — no triggers anyway. Stay in cash.")
-        return
+        return result
 
     if not triggered:
         print("\nNo setups triggered today.")
-        return
+        return result
 
     setup_df = pd.DataFrame(triggered).sort_values("quality", ascending=False)
     longs  = setup_df[setup_df["direction"] == "LONG"]
@@ -168,7 +246,6 @@ def run(force_refresh: bool = False) -> None:
         print(f"{'='*66}")
         print(subset[cols].to_string(index=False))
 
-    # ── Per-setup detail (highest quality first) ─────────────────────────────
     print(f"\n── Setup Detail ──")
     for _, row in setup_df.iterrows():
         arrow = "▲" if row["direction"] == "LONG" else "▼"
@@ -179,6 +256,8 @@ def run(force_refresh: bool = False) -> None:
         print(f"    VWAP dist: {row['price_vs_vwap_pct']:+.1f}%  |  SMA50>SMA200: {row['sma50_above_sma200']}")
         print(f"    Timeframe: {row['timeframe']}")
         print(f"    Notes: {row['notes']}")
+
+    return result
 
 
 if __name__ == "__main__":

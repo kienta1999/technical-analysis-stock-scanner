@@ -160,6 +160,98 @@ uv pip install yfinance pandas lxml requests --python .venv/bin/python3 -q
 
 ---
 
+## Live paper trading — daily on GitHub Actions
+
+`.github/workflows/daily-scan.yml` runs the strategy in paper mode every US trading day. **No real money — pure simulation, persisted to git.**
+
+### What runs each day
+
+| Step              | Command                                                                | Output                              |
+| ----------------- | ---------------------------------------------------------------------- | ----------------------------------- |
+| Resolve run flag  | bash gate (skip weekends, skip non-9 ET hour, allow `workflow_dispatch`) | `gate.outputs.date`                 |
+| Run scanner       | `python sma200_filter.py > scans/<date>.txt`                           | committed scan report               |
+| Run paper trade   | `python paper_trade.py --date <date>`                                  | updates `logs/paper_state.json`, appends to `logs/paper_trades.csv` and `logs/paper_portfolio.csv` |
+| Commit output     | `git add scans/ logs/ && git commit -m "scan + paper: <date>" && git push` | one commit per trading day          |
+
+Two cron entries (`13:30` and `14:30` UTC) cover both DST states; the gate step ensures only the one matching 9:00 ET actually runs. Manual re-runs via `workflow_dispatch` accept an optional `date` override.
+
+### Log files — what each one means
+
+#### `logs/paper_state.json` — single source of truth
+Live snapshot consumed by the next run. Overwritten in-place each day (atomic `.tmp` → rename); git history preserves every prior version.
+
+```json
+{
+  "starting_capital": 10000.0,
+  "starting_date":    "2026-04-27",
+  "max_slots":        1,
+  "slots": [
+    {
+      "idx":      0,
+      "cash":     0.0,                  // free cash in this slot
+      "position": {                      // null when slot is empty
+        "ticker": "AAPL", "direction": "LONG",
+        "setup":  "Ride Uptrend", "quality": 75.0,
+        "entry_date":          "2026-04-27",
+        "scan_date":           "2026-04-24",
+        "entry":               175.50, "shares": 56.98,
+        "sl":                  170.00, "original_sl": 170.00,
+        "tp":                  195.50, "be_trigger":  185.50,
+        "be_moved":            false,
+        "days_held":           3,
+        "last_processed_date": "2026-04-29"
+      }
+    }
+  ],
+  "last_run_date": "2026-04-29"
+}
+```
+
+If you ever delete or edit the CSV logs, this is the file the next run reads — the simulation continues correctly.
+
+#### `logs/paper_trades.csv` — append-only trade journal
+One row per *event*. Action types:
+
+| Action       | Meaning                                                                  |
+| ------------ | ------------------------------------------------------------------------ |
+| `BUY`        | Slot opened a position. Records entry price, shares, SL, TP, BE-trigger. |
+| `BE_MOVE`    | Trailing-to-breakeven fired — SL raised to entry. Position still open.   |
+| `SELL_SL`    | Stop-loss hit (intraday low ≤ SL). Position closed, slot cash refilled.  |
+| `SELL_TP`    | Take-profit hit (intraday high ≥ TP). Position closed.                   |
+| `SELL_TIME`  | 40-day time stop — exited at the bar's close.                            |
+
+Columns: `run_date, scan_date, action, slot, ticker, setup, quality, price, shares, sl, tp, be_trigger, pnl_pct, pnl_usd, slot_cash_after, portfolio_value, days_held, note`. `pnl_*` are blank for `BUY` / `BE_MOVE`.
+
+#### `logs/paper_portfolio.csv` — append-only daily mark-to-market
+One row per workflow run. Columns:
+
+| Column                                                | Meaning                                                            |
+| ----------------------------------------------------- | ------------------------------------------------------------------ |
+| `run_date`                                            | Workflow run date (NY).                                            |
+| `scan_date`                                           | Date of the latest OHLCV bar the scan saw (usually `run_date − 1`). |
+| `cash`                                                | Sum of free cash across all slots.                                 |
+| `positions_value`                                     | Sum of `shares × latest_close` for every open position.            |
+| `total_value`                                         | `cash + positions_value` — equity curve datapoint.                 |
+| `return_pct`                                          | `(total_value / starting_capital − 1) × 100`.                      |
+| `open_count`, `open_tickers`                          | How many slots are deployed and into what.                         |
+| `gate_open`, `spy_price`, `spy_ma`, `vix`             | Regime snapshot.                                                   |
+| `scan_picks_count`, `top_pick`                        | What the scanner found that day.                                   |
+
+Use this CSV to chart the equity curve vs SPY without replaying any trades.
+
+### Resetting the simulation
+
+To restart from a fresh $10k:
+
+```bash
+rm -f logs/paper_state.json logs/paper_trades.csv logs/paper_portfolio.csv
+git add logs/ && git commit -m "paper: reset" && git push
+```
+
+Next workflow run will re-init `starting_capital = 10_000` and `starting_date = <today>`.
+
+---
+
 ## Code layout — what each file does
 
 ```
@@ -167,11 +259,17 @@ scripts/
   universe.py       — top-100 S&P 500 universe loader
   indicators.py     — per-ticker indicator math
   signals.py        — SOT for every algo-level rule and tunable
-  sma200_filter.py  — live EOD scanner (CLI)
+  sma200_filter.py  — live EOD scanner (CLI + scan() API)
   backtest.py       — simulate() engine + 2-year backtest CLI
   tune.py           — parameter grid search with IS/OOS split
   run_oos.py        — six-window historical regime sweep
+  paper_trade.py    — daily paper-trade simulator (driven by GitHub Actions)
 data/               — cached OHLCV pickles + universe CSV (gitignored)
+scans/              — committed daily scan output (one .txt per trading day)
+logs/               — committed paper-trade state + trade/portfolio history
+.github/
+  workflows/
+    daily-scan.yml  — 9:30 AM ET workflow: scan → paper_trade → commit
 .claude/
   commands/         — slash commands for Claude Code
   settings.json     — project default model
@@ -201,6 +299,10 @@ If you want to change the strategy, you change a constant or a function here. No
 
 `python3 scripts/sma200_filter.py` — no args. `--refresh` re-pulls the universe from Wikipedia.
 
+Two entry points:
+- **`scan(force_refresh=False, verbose=True) -> dict`** — programmatic API. Returns `{scan_date, gate_open, gate_detail, spy_price, spy_ma, vix, breadth_long, breadth_short, breadth_total, rs_eligible, long_rows, short_rows, triggered, picks, raw, tickers}`. `picks` is the actionable LONG candidate list (regime-allowed, ≥`MIN_QUALITY_SCORE`, sorted by quality desc), each entry containing `ticker, setup, direction, quality, entry, sl, tp, rsi, vol_ratio, atr_pct, rr`. `raw` is the full OHLCV frame so callers (`paper_trade.py`) can avoid re-downloading.
+- **`run(force_refresh=False) -> dict`** — CLI wrapper: calls `scan()`, prints the human-readable report, returns the dict.
+
 ### `scripts/backtest.py`
 **The reference simulator and CLI for a single date range.** Two pieces:
 1. `simulate(raw, tickers, all_dates, bt_dates, ...)` — the core engine. Loops day by day: scan EOD, enter next-day open, monitor TP/SL/time-stop with daily highs/lows, track trailing-to-breakeven, score candidates, pick highest-quality, fill free slots. Used by `tune.py` and `run_oos.py` too.
@@ -215,6 +317,19 @@ Editing `START_DATE`/`END_DATE` at the top runs the same engine on a different w
 **Six-window OOS regime sweep — the verdict tool for any algo-level change.** Runs `simulate()` against each of: 2024-26 bull, 2015 chop, 2018 vol shock, 2020 COVID, 2022-24 bear+recov, 2008 GFC. Per-window OHLCV is cached to `data/raw_oos_<start>_<end>.pkl` (7-day TTL). Prints a Δ-vs-baseline table where the baselines are the alphas of the **currently shipped** config, and a ship rule (2015 alpha > 0 AND no window drops more than 10pp). Update the baseline column after any accepted change so future runs measure Δ vs the latest state of the art, not pre-change history.
 
 This script replaced the previous workflow of editing `backtest.py`'s date range five times by hand. Use it before declaring any strategy change a win.
+
+### `scripts/paper_trade.py`
+**Daily paper-trade simulator.** Mirrors the algo's rules with $10k starting capital and `MAX_SLOTS` independent sub-account slots (currently 1 — same as the proven default). Run by GitHub Actions every weekday at 9:30 ET; can also be run locally as `python3 scripts/paper_trade.py --date YYYY-MM-DD`.
+
+Per run:
+
+1. Calls `sma200_filter.scan()` once — reuses the same OHLCV download for both scanning and position management (no duplicate yfinance calls).
+2. Walks every open position through every bar > its `last_processed_date`. Per bar, applies in this order: trailing-to-breakeven (raise SL to entry once price hits 50% of the way to TP) → SL hit → TP hit → 40-day time stop. Identical to `backtest.simulate_trade`.
+3. If a slot is free, regime gate is open, and the top-quality pick (≥`MIN_QUALITY_SCORE`) isn't already held → BUY at the scan's entry price (= last bar close). Slot's full cash converts to shares.
+4. Mark-to-market all open positions using the latest close, append the day's row to `paper_portfolio.csv`.
+5. Atomically write `paper_state.json`.
+
+State of truth is `logs/paper_state.json` — committed by the workflow, so each daily run picks up where the last left off. The two CSVs are append-only history for human consumption.
 
 ---
 
