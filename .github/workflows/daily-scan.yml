@@ -24,32 +24,37 @@ jobs:
       - name: Resolve run flag and date
         id: gate
         run: |
-          ny_hour=$(TZ='America/New_York' date +%H)
-          ny_dow=$(TZ='America/New_York' date +%u)
           ny_today=$(TZ='America/New_York' date +%Y-%m-%d)
-          echo "NY date=$ny_today hour=$ny_hour dow=$ny_dow event=${{ github.event_name }}"
-
+          ny_dow=$(TZ='America/New_York' date +%u)
+          ny_offset=$(TZ='America/New_York' date +%z)
+          sched='${{ github.event.schedule }}'
+          echo "NY date=$ny_today dow=$ny_dow offset=$ny_offset sched='$sched' event=${{ github.event_name }}"
+      
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             override='${{ inputs.date }}'
             chosen="${override:-$ny_today}"
             echo "Manual run — bypassing gate. date=$chosen"
-            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "run=true"  >> "$GITHUB_OUTPUT"
             echo "date=$chosen" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-
+      
           if [ "$ny_dow" -gt 5 ]; then
             echo "Weekend in NY — skipping."
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [ "$ny_hour" != "09" ]; then
-            echo "Not 9 AM ET hour — skipping (other DST cron will fire)."
+      
+          # EDT (offset -0400): 13:30 UTC == 9:30 AM ET
+          # EST (offset -0500): 14:30 UTC == 9:30 AM ET
+          if { [ "$ny_offset" = "-0400" ] && [ "$sched" = "30 13 * * 1-5" ]; } || \
+             { [ "$ny_offset" = "-0500" ] && [ "$sched" = "30 14 * * 1-5" ]; }; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "date=$ny_today" >> "$GITHUB_OUTPUT"
+          else
+            echo "Cron '$sched' doesn't match DST offset $ny_offset — skipping."
             echo "run=false" >> "$GITHUB_OUTPUT"
-            exit 0
           fi
-          echo "run=true" >> "$GITHUB_OUTPUT"
-          echo "date=$ny_today" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         if: steps.gate.outputs.run == 'true'
