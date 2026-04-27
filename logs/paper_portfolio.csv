@@ -1,0 +1,2 @@
+run_date,scan_date,cash,positions_value,total_value,return_pct,open_count,gate_open,spy_price,spy_ma,vix,scan_picks_count,top_pick,open_tickers
+2026-04-27,2026-04-27,10000.0,0,10000.0,0.0,0,True,715.0,665.992940979004,18.520000457763672,0,,
