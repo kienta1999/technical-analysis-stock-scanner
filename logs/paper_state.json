@@ -5,25 +5,9 @@
   "slots": [
     {
       "idx": 0,
-      "cash": 0.0,
-      "position": {
-        "ticker": "RTX",
-        "direction": "LONG",
-        "setup": "Ride Uptrend",
-        "quality": 62.2,
-        "entry_date": "2026-06-19",
-        "scan_date": "2026-06-19",
-        "entry": 192.58,
-        "shares": 49.273081,
-        "sl": 183.28,
-        "original_sl": 183.28,
-        "tp": 211.18,
-        "be_trigger": 201.88,
-        "be_moved": false,
-        "days_held": 0,
-        "last_processed_date": "2026-06-19"
-      }
+      "cash": 9030.770285679999,
+      "position": null
     }
   ],
-  "last_run_date": "2026-06-19"
+  "last_run_date": "2026-06-22"
 }
