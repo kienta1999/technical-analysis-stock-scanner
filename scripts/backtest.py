@@ -23,8 +23,8 @@ import signals as sg
 from signals import SPY_MA_PERIOD, VIX_MAX, BENCHMARK
 from sma200_filter import scan
 
-START_DATE  = date(2024, 4, 20)
-END_DATE    = date(2026, 4, 20)
+START_DATE  = date(2021, 1, 1)
+END_DATE    = date(2026, 4, 30)
 CAPITAL_INIT = 10_000.0
 TIME_STOP_DAYS = 40          # max days to hold if TP/SL not hit
 
