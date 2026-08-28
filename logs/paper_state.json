@@ -5,9 +5,25 @@
   "slots": [
     {
       "idx": 0,
-      "cash": 9030.770285679999,
-      "position": null
+      "cash": 0.0,
+      "position": {
+        "ticker": "SCHW",
+        "direction": "LONG",
+        "setup": "VWAP Support",
+        "quality": 84.8,
+        "entry_date": "2026-08-28",
+        "scan_date": "2026-08-28",
+        "entry": 110.16,
+        "shares": 81.97867,
+        "sl": 104.26,
+        "original_sl": 104.26,
+        "tp": 116.06,
+        "be_trigger": 113.11,
+        "be_moved": false,
+        "days_held": 0,
+        "last_processed_date": "2026-08-28"
+      }
     }
   ],
-  "last_run_date": "2026-08-27"
+  "last_run_date": "2026-08-28"
 }
