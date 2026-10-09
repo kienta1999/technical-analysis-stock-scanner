@@ -15,15 +15,15 @@
         "scan_date": "2026-10-05",
         "entry": 265.76,
         "shares": 32.160958,
-        "sl": 255.18,
+        "sl": 265.76,
         "original_sl": 255.18,
         "tp": 286.92,
         "be_trigger": 276.34,
-        "be_moved": false,
-        "days_held": 3,
-        "last_processed_date": "2026-10-08"
+        "be_moved": true,
+        "days_held": 4,
+        "last_processed_date": "2026-10-09"
       }
     }
   ],
-  "last_run_date": "2026-10-08"
+  "last_run_date": "2026-10-09"
 }

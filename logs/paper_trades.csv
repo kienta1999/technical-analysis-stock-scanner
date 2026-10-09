@@ -6,3 +6,4 @@ run_date,scan_date,action,slot,ticker,setup,quality,price,shares,sl,tp,be_trigge
 2026-08-28,2026-08-28,BUY,0,SCHW,VWAP Support,84.8,110.16,81.97867,104.26,116.06,113.11,,,0.0,,0,"deployed $9,030.77; RSI 57.3, vol 1.71x, ATR 2.14%"
 2026-09-17,2026-09-17,SELL_SL,0,SCHW,VWAP Support,84.8,104.26,81.97867,104.26,116.06,113.11,-5.36,-483.67,8547.1,,13,exit on 2026-09-17
 2026-10-05,2026-10-05,BUY,0,ABBV,Ride Uptrend,84.8,265.76,32.160958,255.18,286.92,276.34,,,0.0,,0,"deployed $8,547.10; RSI 58.4, vol 1.71x, ATR 1.99%"
+2026-10-09,2026-10-09,BE_MOVE,0,ABBV,Ride Uptrend,84.8,265.76,32.160958,265.76,286.92,276.34,,,0.0,,4,SL raised to entry (255.18 → 265.76)
