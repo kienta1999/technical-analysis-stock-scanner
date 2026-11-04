@@ -5,9 +5,25 @@
   "slots": [
     {
       "idx": 0,
-      "cash": 9227.62206936,
-      "position": null
+      "cash": 0.0,
+      "position": {
+        "ticker": "AAPL",
+        "direction": "LONG",
+        "setup": "Ride Uptrend",
+        "quality": 76.1,
+        "entry_date": "2026-11-04",
+        "scan_date": "2026-11-04",
+        "entry": 350.62,
+        "shares": 26.318014,
+        "sl": 333.58,
+        "original_sl": 333.58,
+        "tp": 384.7,
+        "be_trigger": 367.66,
+        "be_moved": false,
+        "days_held": 0,
+        "last_processed_date": "2026-11-04"
+      }
     }
   ],
-  "last_run_date": "2026-11-03"
+  "last_run_date": "2026-11-04"
 }
