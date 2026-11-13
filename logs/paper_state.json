@@ -20,10 +20,10 @@
         "tp": 384.7,
         "be_trigger": 367.66,
         "be_moved": false,
-        "days_held": 6,
-        "last_processed_date": "2026-11-12"
+        "days_held": 7,
+        "last_processed_date": "2026-11-13"
       }
     }
   ],
-  "last_run_date": "2026-11-12"
+  "last_run_date": "2026-11-13"
 }
